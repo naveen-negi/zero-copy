@@ -1,0 +1,1413 @@
+# Adobe Experience Platform (AEP) - Concepts, FAQ & Glossary
+
+**Purpose:** Explain AEP concepts for business stakeholders, marketing ops, and anyone new to Adobe Experience Platform.
+
+**Audience:** Executives, marketing managers, business analysts, and technical teams evaluating or implementing AEP.
+
+**Last Updated:** October 2025
+
+---
+
+## Table of Contents
+
+1. [Key Concepts & Glossary](#key-concepts--glossary)
+2. [Identity Stitching - Deep Dive](#identity-stitching---deep-dive)
+3. [Edge Segmentation - Deep Dive](#edge-segmentation---deep-dive)
+4. [Segments vs Audiences - What's the Difference?](#segments-vs-audiences---whats-the-difference)
+5. [Frequently Asked Questions](#frequently-asked-questions)
+   - [AEP Basics](#aep-basics)
+   - [Data & Integration](#data--integration)
+   - [Identity & Profiles](#identity--profiles)
+   - [Segmentation & Activation](#segmentation--activation)
+   - [Zero-Copy Architecture](#zero-copy-architecture)
+   - [Costs & Licensing](#costs--licensing)
+
+---
+
+## Key Concepts & Glossary
+
+### Real-Time Customer Data Platform (RT-CDP)
+
+**What it is:** Adobe's cloud platform that unifies customer data from multiple sources (website, mobile app, CRM, email) into a single view of each customer, enabling you to create audiences and activate them to marketing channels.
+
+**Why it matters:** Instead of having customer data scattered across 10+ systems, RT-CDP creates one profile per customer that updates in real-time. Marketing can then target the right people with the right message at the right time.
+
+**Example:** A customer browses your website (anonymous), then logs in (now known), then opens your mobile app. RT-CDP stitches these interactions into one profile, so you know this person viewed Product X on web and can send them a personalized push notification about it.
+
+**Related to:** Customer Profile, Identity Graph, Segmentation, Activation
+
+---
+
+### Customer Profile (Real-Time Customer Profile)
+
+**What it is:** A unified view of an individual customer that combines data from all sources - demographics, behaviors, transactions, preferences - updated in real-time or near-real-time.
+
+**Why it matters:** Enables personalization. If you know a customer is a "high-value lead interested in enterprise products," you can show them relevant offers instead of generic messaging.
+
+**Example:** Profile for customer ID "12345" contains:
+- Email: john@company.com
+- Last purchase: $5,000 software license (3 months ago)
+- Website visits: 12 in last 30 days
+- Lead score: 87 (hot lead)
+- Preferred channel: Email
+
+Marketing can use this to send John a personalized upgrade offer via email.
+
+**Related to:** XDM Schema, Identity Stitching, Profile Store
+
+---
+
+### Experience Data Model (XDM)
+
+**What it is:** Adobe's standardized data format for customer data. Think of it as a template that defines what fields your customer profiles contain and what types of data they are (text, number, date, etc.).
+
+**Why it matters:** Ensures consistency. If 5 different teams send customer data to AEP, XDM makes sure "email address" is stored the same way for everyone, not as "email", "Email", "email_address", etc.
+
+**Example:** Instead of each team defining customer data differently:
+- Team A: `{customer_name, emailAddr, phone}`
+- Team B: `{name, email, phoneNumber}`
+
+XDM provides a standard schema:
+```json
+{
+  "person": {
+    "name": "John Doe",
+    "email": "john@company.com",
+    "phone": "+1-555-0100"
+  }
+}
+```
+
+**Related to:** Schemas, Datasets, Profile Store
+
+---
+
+### Identity and Identity Namespace
+
+**What it is:**
+- **Identity:** A unique identifier for a customer (email, phone, CRM ID, cookie ID, mobile device ID)
+- **Identity Namespace:** The "type" of identifier (e.g., "Email", "CRM ID", "Mobile Device ID")
+
+**Why it matters:** Customers interact with you through multiple channels using different identifiers. Identity namespaces help AEP connect these dots. Email "john@company.com" and Cookie ID "abc123" might be the same person.
+
+**Example:**
+- Identity: `john@company.com`, Namespace: `Email`
+- Identity: `abc123`, Namespace: `ECID` (Adobe cookie)
+- Identity: `CRM-12345`, Namespace: `CRM_ID`
+
+AEP's Identity Graph links these together into one profile.
+
+**Related to:** Identity Graph, Identity Stitching, Cross-Device Tracking
+
+---
+
+### Identity Graph
+
+**What it is:** A map showing how different identities (email, cookie, mobile ID, CRM ID) relate to each other and belong to the same person.
+
+**Why it matters:** Without an identity graph, you treat anonymous website visitor "Cookie ABC" and known customer "john@company.com" as two different people. With an identity graph, you know they're the same person and can provide a seamless experience.
+
+**Example:**
+```
+john@company.com (Email) ←→ Cookie ABC (Web) ←→ Device XYZ (Mobile App) ←→ CRM-12345 (CRM ID)
+```
+All four identities = ONE customer profile.
+
+**Related to:** Identity Stitching, Cross-Device Tracking
+
+**Note:** Federated Audience Composition does NOT use the Identity Graph. You must pre-compute identity resolution in your data warehouse.
+
+---
+
+### Sources and Destinations
+
+**Sources (What it is):** Systems that SEND data TO AEP (e.g., website, mobile app, CRM like Salesforce, email platform like Marketo, data warehouse like BigQuery).
+
+**Destinations (What it is):** Systems that RECEIVE data FROM AEP (e.g., ad platforms like Google Ads, email tools like Marketo, analytics tools, your own APIs).
+
+**Why it matters:** AEP sits in the middle, collecting data from sources, creating unified profiles, and activating audiences to destinations.
+
+**Example Flow:**
+```
+Sources → AEP Profile → Segments → Destinations
+(Salesforce, Website) → Unified Profile → "Hot Leads" Segment → (Google Ads, Marketo)
+```
+
+**Related to:** Data Ingestion, Activation
+
+---
+
+### Data Ingestion (Batch vs Streaming)
+
+**What it is:**
+- **Batch Ingestion:** Upload data files on a schedule (e.g., daily CSV of yesterday's transactions)
+- **Streaming Ingestion:** Send data to AEP in real-time as events occur (e.g., user clicked a button → event sent to AEP immediately)
+
+**Why it matters:**
+- Batch: Cheaper, simpler, but delayed (data is hours/days old)
+- Streaming: Real-time, enables instant personalization, but more expensive and complex
+
+**Example:**
+- **Batch:** Every night at midnight, export CRM contacts and upload to AEP
+- **Streaming:** User adds item to cart → event sent to AEP within 1 second → profile updated → personalized email sent
+
+**Related to:** Sources, Profile Store, Real-Time Customer Profile
+
+---
+
+### Segmentation
+
+**What it is:** The process of grouping customers based on criteria. A segment is a subset of your customer base matching specific conditions.
+
+**Why it matters:** Marketing rarely wants to message ALL customers. Segmentation lets you target specific groups: "High-value customers in California who haven't purchased in 90 days."
+
+**Example Segment:**
+- **Name:** "Dormant High-Value Customers"
+- **Criteria:**
+  - Last purchase > 90 days ago
+  - Total lifetime value > $10,000
+  - Location: California
+- **Result:** 5,432 customers qualify
+
+You can then activate this segment to an email campaign.
+
+**Related to:** Audiences, Segment Builder, Streaming/Batch/Edge Segmentation
+
+---
+
+### Activation
+
+**What it is:** The process of sending audience/segment data to marketing channels (destinations) so you can actually USE the data for campaigns, ads, personalization, etc.
+
+**Why it matters:** Building a perfect segment of "Hot Leads" is useless if you can't send it to Google Ads or your email tool. Activation is where the value gets realized.
+
+**Example:**
+1. Create segment: "Hot Leads interested in Product X" (10,000 people)
+2. Activate to Google Ads → Google Ads creates a custom audience with these 10,000 people
+3. Run ad campaign targeting only this audience
+4. Result: Higher conversion rate, lower wasted ad spend
+
+**Related to:** Destinations, Segments, Audiences
+
+---
+
+### Sandboxes
+
+**What it is:** Isolated environments within your AEP instance. Like having separate "test" and "production" databases.
+
+**Why it matters:** You can test configurations, build segments, try new features in a "dev" sandbox without risking your production data or campaigns.
+
+**Example:**
+- **Prod Sandbox:** Live customer data, active campaigns
+- **Dev Sandbox:** Test data, experimental segments, training environment
+- **QA Sandbox:** Validate changes before promoting to production
+
+**Related to:** Environments, Data Governance
+
+---
+
+### Journey Optimizer
+
+**What it is:** Adobe's tool for creating multi-step, multi-channel customer journeys. Goes beyond simple "send email" to orchestrate complex workflows like "If user clicks email, send SMS next day, if no response, assign to sales rep."
+
+**Why it matters:** Enables sophisticated marketing automation across email, SMS, push notifications, in-app messages, and more.
+
+**Example Journey:**
+1. User abandons cart → Wait 1 hour
+2. Send email reminder → If opened → Wait 24 hours → Send discount code
+3. If discount code used → Send "Thank you" push notification
+4. If not used after 3 days → Assign to sales rep for personal outreach
+
+**Related to:** RT-CDP, Activation, Personalization
+
+---
+
+### External Audiences
+
+**What it is:** Audience lists created OUTSIDE of AEP (e.g., in your data warehouse, via CSV upload, or using Federated Audience Composition) and imported into AEP as a list of customer IDs.
+
+**Why it matters:** You can leverage complex segmentation logic in your data warehouse (BigQuery, Snowflake) and bring just the results (audience IDs) into AEP for activation, without copying all the underlying data.
+
+**Example:**
+- You build a complex lead scoring model in BigQuery using ML
+- BigQuery identifies 50,000 "Hot Leads"
+- You import these 50,000 customer IDs to AEP as an "External Audience"
+- AEP activates them to Google Ads
+
+**Related to:** Federated Audience Composition, Zero-Copy Architecture
+
+---
+
+### Federated Audience Composition
+
+**What it is:** NEW capability (2024/2025) that lets AEP query your data warehouse (BigQuery, Snowflake, etc.) DIRECTLY to create audiences, without copying your data into AEP.
+
+**Why it matters:** **TRUE zero-copy architecture.** Your customer data stays in your warehouse under your control. AEP just queries it and retrieves customer IDs matching your criteria.
+
+**Example:**
+1. You have 10 million customer profiles in BigQuery (2 TB of data)
+2. You use AEP's drag-and-drop UI to build a query: "Customers who viewed pricing page 3+ times in last 7 days"
+3. AEP executes this query against BigQuery
+4. BigQuery returns 50,000 customer IDs
+5. AEP transfers only these 50,000 IDs (~1 MB) to create an audience
+6. **Result:** 10 million profiles stay in BigQuery, only 50K IDs in AEP
+
+**Related to:** External Audiences, BigQuery, Zero-Copy Architecture
+
+**Limitations:**
+- Batch-only (no real-time streaming)
+- No Identity Graph
+- No Customer AI/Attribution AI
+- Requires Federated Audience Composition add-on license
+
+---
+
+## Identity Stitching - Deep Dive
+
+### What is Identity Stitching?
+
+**Simple Definition:** The process of connecting multiple identifiers (email, cookie, mobile device ID, CRM ID) that belong to the same person into a single unified customer profile.
+
+**The Problem It Solves:**
+
+Imagine a customer's journey:
+1. **Monday:** Visits your website on laptop (anonymous cookie ID: `ABC123`)
+2. **Tuesday:** Clicks email link, logs in (email: `john@company.com`, same cookie `ABC123`)
+3. **Wednesday:** Downloads mobile app (mobile device ID: `XYZ789`)
+4. **Thursday:** Calls customer service, gives phone number (phone: `+1-555-0100`)
+
+Without identity stitching, AEP sees 4 different people:
+- Person 1: Cookie ABC123
+- Person 2: john@company.com
+- Person 3: Mobile XYZ789
+- Person 4: +1-555-0100
+
+With identity stitching, AEP knows all 4 identifiers = 1 person.
+
+---
+
+### How Does Identity Stitching Work in AEP?
+
+**AEP's Identity Graph** uses two methods:
+
+#### Method 1: Deterministic Stitching (100% Accurate)
+
+When you explicitly tell AEP two identities belong together:
+- User logs in → Cookie ABC123 + Email john@company.com are linked
+- User enters phone in app → Email john@company.com + Phone +1-555-0100 are linked
+
+**Example Event:**
+```json
+{
+  "identities": [
+    {"id": "ABC123", "namespace": "ECID"},
+    {"id": "john@company.com", "namespace": "Email"}
+  ],
+  "event": "login"
+}
+```
+
+AEP's Identity Graph now knows: `ABC123 ↔ john@company.com`
+
+#### Method 2: Probabilistic Stitching (AI-Based, Optional)
+
+AEP's "Private Identity Graph" can use AI to make educated guesses:
+- Same device + same browsing patterns + same location = probably the same person
+
+**Note:** Most enterprises rely on deterministic stitching only for accuracy.
+
+---
+
+### Why is Identity Stitching Important?
+
+**Use Case 1: Consistent Customer Experience**
+
+**Without stitching:**
+- Customer browses product on laptop → Abandons cart
+- Opens mobile app next day → Sees generic homepage (AEP doesn't know they're interested in that product)
+
+**With stitching:**
+- Customer browses product on laptop → Abandons cart
+- Opens mobile app next day → App shows: "Complete your purchase! Product X is still in your cart"
+
+**Business Impact:** Higher conversion rates, better customer satisfaction
+
+---
+
+**Use Case 2: Attribution (Understanding Marketing ROI)**
+
+**Without stitching:**
+- Customer sees Facebook ad on phone → Doesn't click
+- Searches Google on laptop → Clicks ad → Visits website
+- Receives email → Clicks link → Makes purchase
+
+**Without identity stitching:** Email gets 100% credit (last click)
+**With identity stitching:** Credit is distributed: Facebook (awareness), Google (consideration), Email (conversion)
+
+**Business Impact:** Accurate marketing spend allocation, better budget decisions
+
+---
+
+**Use Case 3: Personalization Across Channels**
+
+**Without stitching:**
+- Customer downloads whitepaper via email (shows interest in Topic X)
+- Visits website later → Sees generic banner (AEP doesn't know about the download)
+
+**With stitching:**
+- Customer downloads whitepaper via email
+- Visits website later → Sees banner: "Since you liked our Topic X guide, check out our webinar!"
+
+**Business Impact:** Relevant messaging, higher engagement
+
+---
+
+### When is Identity Stitching NOT Needed?
+
+**Scenario 1: Simple Email-Only Campaigns**
+- You only send batch email campaigns
+- You use email address as the sole identifier
+- No cross-device tracking needed
+
+**Verdict:** Identity stitching adds no value. Just use email as your primary ID.
+
+---
+
+**Scenario 2: Anonymous Analytics Only**
+- You're just tracking website traffic patterns
+- You don't care WHO the person is, just what pages they view
+- No personalization needed
+
+**Verdict:** Use Adobe Analytics, not AEP. Identity stitching is overkill.
+
+---
+
+**Scenario 3: Using Federated Audience Composition**
+- Your data warehouse (BigQuery) already has identity resolution logic
+- You've pre-computed which cookie/email/mobile IDs belong together
+- AEP just queries your warehouse and gets customer IDs
+
+**Verdict:** Identity stitching in AEP is not needed. You've already done it in BigQuery.
+
+---
+
+### Identity Stitching and Zero-Copy Architecture
+
+**Key Question:** If I use Federated Audience Composition (Option 1), do I lose identity stitching?
+
+**Answer:** You don't "lose" it, but you must handle it YOURSELF in your data warehouse.
+
+**Federated Audience Composition:**
+- ✅ Data stays in BigQuery
+- ✅ Zero vendor lock-in
+- ❌ No AEP Identity Graph
+- ✅ But you can build your own identity resolution in BigQuery
+
+**Computed Attributes Pattern (Option 2) or Hybrid (Option 3):**
+- ❌ Data copied to AEP
+- ❌ Some vendor lock-in
+- ✅ AEP Identity Graph available
+- ✅ Cross-device tracking out-of-the-box
+
+**Bottom Line:** If cross-device identity stitching is critical AND you don't want to build it yourself, use Option 2 or 3. If you can do identity resolution in BigQuery (or don't need it), use Option 1.
+
+---
+
+## Edge Segmentation - Deep Dive
+
+### What is Edge Segmentation?
+
+**Simple Definition:** Creating and evaluating segments at the "edge" (close to the user, on Adobe's edge servers near their location) to enable ultra-fast personalization with <50 milliseconds latency.
+
+**Regular Segmentation:**
+- User visits website → Request goes to AEP data center (e.g., Virginia, USA)
+- AEP Profile Store looks up customer profile
+- Segmentation engine evaluates: "Is this user in 'Hot Leads' segment?"
+- Response sent back to website
+- **Total time:** 100-500 milliseconds
+
+**Edge Segmentation:**
+- User visits website → Request goes to Adobe Edge server (e.g., London, UK - close to user)
+- Edge server has cached profile data and segment definitions
+- Segment evaluation happens locally on edge server
+- Response sent back to website
+- **Total time:** <50 milliseconds
+
+---
+
+### Why Would You Use Edge Segmentation?
+
+**Use Case 1: Real-Time Website Personalization**
+
+**Scenario:** E-commerce site wants to show personalized hero banner based on customer segment:
+- "New Visitors" → Show "Welcome! Get 10% off first order"
+- "Returning Customers" → Show "Welcome back! Here are your favorite categories"
+- "VIP Customers" → Show "Exclusive VIP Sale - 20% off everything"
+
+**Without Edge Segmentation:**
+- Page loads → Wait 200ms for AEP to respond → Banner appears (slow, bad UX)
+
+**With Edge Segmentation:**
+- Page loads → Wait 20ms for edge response → Banner appears instantly (smooth UX)
+
+**Business Impact:** Higher engagement, lower bounce rate
+
+---
+
+**Use Case 2: Adobe Target Integration**
+
+**Scenario:** Running A/B tests with Adobe Target. You want to show Test Variant A to "High-Value Leads" and Variant B to everyone else.
+
+**Without Edge Segmentation:**
+- Target queries AEP Profile Store for every visitor → Slow
+- May timeout under high traffic
+
+**With Edge Segmentation:**
+- Target queries Adobe Edge → Fast, scalable
+- Works even with millions of concurrent visitors
+
+**Business Impact:** Reliable A/B testing at scale
+
+---
+
+**Use Case 3: Mobile App In-Session Personalization**
+
+**Scenario:** Banking app shows different screens based on customer segment:
+- "New Customers" → Onboarding flow
+- "Active Customers" → Dashboard with recent transactions
+- "Dormant Customers" → Re-engagement offer
+
+**With Edge Segmentation:**
+- App queries edge server → Gets segment membership in <30ms
+- User sees personalized screen immediately
+
+**Business Impact:** Better mobile app experience, higher retention
+
+---
+
+### How is Edge Segmentation Different from Regular Segmentation?
+
+| Aspect | Regular Segmentation | Edge Segmentation |
+|--------|---------------------|-------------------|
+| **Location** | AEP data centers (centralized) | Adobe Edge servers (distributed globally) |
+| **Latency** | 100-500ms | <50ms |
+| **Use Case** | Batch campaigns, scheduled activations | Real-time web/mobile personalization |
+| **Profile Data** | Full profile (100+ attributes) | Subset of attributes (5-20 key fields) |
+| **Segment Complexity** | Complex logic supported | Simple logic only (no lookback windows >14 days) |
+| **Data Freshness** | Real-time (streaming updates) | Near real-time (minutes delay) |
+| **Cost** | Standard AEP pricing | Premium feature (additional cost) |
+
+**Key Limitation:** Edge segments can only use attributes that are "edge-enabled" (marked in schema). You can't use all 100+ profile attributes due to performance constraints.
+
+---
+
+### Technical Requirements for Edge Segmentation
+
+**1. Profile Attributes Must Be Edge-Enabled**
+- In your XDM schema, mark attributes as "edge projection enabled"
+- Example: `lead_score`, `customer_tier`, `last_purchase_date`
+- NOT: Complex nested objects or historical event arrays
+
+**2. Simple Segment Logic**
+- ✅ Allowed: `lead_score > 80 AND customer_tier = 'gold'`
+- ✅ Allowed: `last_purchase_date < 30 days ago`
+- ❌ Not allowed: `COUNT(purchases in last 12 months) > 10` (requires full event history)
+
+**3. Streaming Profile Updates**
+- Edge relies on real-time profile updates
+- Batch-only profiles may be stale on edge (minutes delay)
+
+**4. Adobe Target or Web SDK Integration**
+- Edge segmentation is accessed via Adobe Target or Web SDK
+- Not available for backend API integrations
+
+---
+
+### Can You Use Edge Segmentation with Federated Audience Composition?
+
+**Short Answer:** No.
+
+**Why:** Edge segmentation requires profiles to be in AEP's Profile Store with real-time updates. Federated Audience Composition doesn't store profiles in AEP, so there's nothing to evaluate at the edge.
+
+**Alternatives:**
+- Use Option 2 (Computed Attributes) for the subset of customers needing edge personalization
+- Use Option 3 (Hybrid): Federated for 99% + Streaming for 1% that need edge capabilities
+
+---
+
+## Segments vs Audiences - What's the Difference?
+
+### The Confusion
+
+In Adobe Experience Platform, "segment" and "audience" are often used interchangeably, but there are subtle differences.
+
+### Definitions
+
+**Segment:**
+- A **definition** or **rule** that describes a group of customers
+- Example: "Customers who purchased in last 30 days AND total spend > $1,000"
+- Think of it as a SQL query or a filter
+
+**Audience:**
+- The **actual list** of customer IDs that match a segment definition at a specific point in time
+- Example: 5,432 customer IDs who currently meet the segment criteria
+- Think of it as the query results
+
+**Analogy:**
+- **Segment** = Recipe (instructions)
+- **Audience** = Cake (finished product)
+
+---
+
+### Types of Segments/Audiences in AEP
+
+#### 1. Batch Segments
+- **Evaluation:** Once per day (scheduled, typically midnight)
+- **Data:** Uses full profile data
+- **Latency:** Updates daily
+- **Use Case:** Weekly email campaigns, monthly reports
+- **Example:** "Dormant customers who haven't purchased in 90 days"
+
+#### 2. Streaming Segments
+- **Evaluation:** Real-time, as profile updates occur
+- **Data:** Uses streaming profile updates
+- **Latency:** <5 minutes
+- **Use Case:** Real-time triggers, urgent alerts
+- **Example:** "Hot lead score just increased above 90 → Alert sales rep"
+
+#### 3. Edge Segments
+- **Evaluation:** At the edge (Adobe edge servers)
+- **Data:** Subset of profile attributes (edge-enabled only)
+- **Latency:** <50 milliseconds
+- **Use Case:** Website personalization, Adobe Target A/B tests
+- **Example:** "VIP customers → Show exclusive offers"
+
+#### 4. External Audiences
+- **Evaluation:** Outside AEP (in your data warehouse)
+- **Data:** Your warehouse data
+- **Latency:** Depends on refresh schedule (daily/hourly)
+- **Use Case:** Leverage existing warehouse logic, zero-copy architecture
+- **Example:** "BigQuery identifies hot leads → Import to AEP as audience"
+
+#### 5. Static Audiences
+- **Evaluation:** None (fixed list)
+- **Data:** Manually uploaded CSV or API import
+- **Latency:** Updated when you upload a new file
+- **Use Case:** One-time campaigns, test audiences
+- **Example:** "500 customers for VIP event invitation"
+
+---
+
+### Comparison Table
+
+| Type | Where Evaluated | Update Frequency | Latency | Data Source | Use Case |
+|------|----------------|------------------|---------|-------------|----------|
+| **Batch Segment** | AEP Profile Store | Daily | 24 hours | AEP profiles | Weekly campaigns |
+| **Streaming Segment** | AEP Profile Store | Real-time | <5 min | AEP profiles | Real-time triggers |
+| **Edge Segment** | Adobe Edge servers | Real-time | <50ms | Edge-enabled attributes | Web personalization |
+| **External Audience** | Your data warehouse | On-demand | Custom | BigQuery/Snowflake | Zero-copy, ML models |
+| **Static Audience** | N/A (fixed list) | Manual upload | N/A | CSV/API | One-time campaigns |
+
+---
+
+### When to Use "Segment" vs "Audience"
+
+**In Adobe's UI:**
+- You BUILD a "Segment" (the definition/rule)
+- You ACTIVATE an "Audience" (the resulting customer list)
+
+**Common Usage:**
+- "I created a segment for hot leads" = You defined the criteria
+- "I activated the hot leads audience to Google Ads" = You sent the customer IDs
+
+**External Audiences Terminology:**
+- Adobe calls them "External Audiences" (not "External Segments")
+- Because they're pre-computed lists, not dynamic rules
+
+---
+
+## Frequently Asked Questions
+
+### AEP Basics
+
+#### Q1: What's the difference between Adobe Analytics and AEP?
+
+**Adobe Analytics:**
+- Focuses on **website/app analytics** - tracking clicks, page views, conversions
+- Answers questions like: "How many people visited our pricing page?"
+- Data is aggregated, not individual-level
+- Reports and dashboards for insights
+
+**Adobe Experience Platform (AEP):**
+- Focuses on **customer data management** - creating unified customer profiles
+- Answers questions like: "Which specific customers are interested in Product X?"
+- Data is individual-level (one profile per customer)
+- Used for personalization, segmentation, and activation
+
+**Analogy:**
+- **Analytics** = Looking at a map (aggregate view of traffic patterns)
+- **AEP** = GPS tracking individual cars (specific customer journeys)
+
+**Can you use both?** Yes! Many companies use Analytics for reporting and AEP for activation.
+
+---
+
+#### Q2: Do I need to send ALL my customer data to AEP?
+
+**Short Answer:** No, especially with Federated Audience Composition.
+
+**Long Answer:**
+- **Traditional AEP approach:** Yes, you send all customer data to create profiles in AEP's Profile Store
+- **Zero-copy approach (Federated Audience Composition):** No, you can keep data in your warehouse and AEP just queries it
+
+**What you MUST send (minimum):**
+- Customer identifiers (email, CRM ID) for audience activation
+- Any attributes needed for segmentation in AEP
+
+**What you CAN keep in your warehouse:**
+- Raw behavioral events
+- Historical transactional data
+- Sensitive PII you don't want in a third-party platform
+
+**See also:** [Zero-Copy Architecture Options](#zero-copy-architecture)
+
+---
+
+#### Q3: How much does AEP cost? (Order of magnitude)
+
+**Rough Pricing (2025):**
+
+**RT-CDP Tiers:**
+- **Foundation:** $100K-$150K/year (base features, lower profile limits)
+- **Select:** $150K-$300K/year (more profiles, streaming segmentation)
+- **Prime:** $250K-$500K/year (advanced features, higher limits)
+- **Ultimate:** $500K-$1M+/year (enterprise scale, all features)
+
+**Add-Ons:**
+- **Journey Optimizer:** +$50K-$150K/year
+- **Federated Audience Composition:** +$40K-$80K/year
+- **Customer AI:** +$30K-$60K/year
+
+**Pricing Factors:**
+- Number of customer profiles (10M, 50M, 100M+)
+- API call volume (streaming ingestion)
+- Destinations (number of marketing channels)
+- Company size and negotiation leverage
+
+**Bottom Line:** Expect $200K-$700K/year for a typical mid-market implementation with RT-CDP + Journey Optimizer + Federated Audience Composition.
+
+---
+
+#### Q4: What's the difference between RT-CDP Foundation, Select, Prime, Ultimate?
+
+**Foundation (Entry Tier):**
+- Up to 10M profiles
+- Batch segmentation only
+- Limited destinations
+- Basic identity graph
+- **Best for:** Small companies, simple use cases
+
+**Select (Mid Tier):**
+- Up to 50M profiles
+- Streaming segmentation
+- More destinations
+- Standard identity graph
+- **Best for:** Mid-market companies, moderate complexity
+
+**Prime (Advanced Tier):**
+- Up to 100M profiles
+- All segmentation types (batch, streaming, edge)
+- All destinations
+- Advanced identity graph features
+- Customer AI, Attribution AI included
+- **Best for:** Large enterprises, complex use cases
+
+**Ultimate (Enterprise Tier):**
+- Unlimited profiles (within reason)
+- All Prime features
+- Dedicated support
+- Custom SLAs
+- Priority feature access
+- **Best for:** Fortune 500, global enterprises
+
+**Note:** Exact limits and features vary by contract negotiation.
+
+---
+
+#### Q5: Can I use AEP without Journey Optimizer? Or vice versa?
+
+**Yes, they're separate products:**
+
+**RT-CDP alone:**
+- Use if you only need audience creation and activation to destinations
+- Don't need multi-step journey orchestration
+- Example: Create "Hot Leads" segment → Activate to Google Ads (done)
+
+**Journey Optimizer alone:**
+- Technically possible but rare
+- Most value comes from combining it with RT-CDP's audience capabilities
+
+**RT-CDP + Journey Optimizer (Recommended):**
+- RT-CDP creates unified profiles and segments
+- Journey Optimizer orchestrates multi-step, multi-channel campaigns based on those segments
+- Example: Hot Leads segment → Journey: Email Day 1 → SMS Day 3 → Sales call Day 7
+
+**Bottom Line:** Most enterprises license both, but you can start with just RT-CDP.
+
+---
+
+### Data & Integration
+
+#### Q6: How do I get data into AEP? (Sources)
+
+**Method 1: Web/Mobile SDK (Real-Time Streaming)**
+- Install Adobe Web SDK or Mobile SDK in your website/app
+- Automatically sends events (page views, clicks, etc.) to AEP as they happen
+- **Latency:** <1 second
+- **Best for:** Real-time personalization
+
+**Method 2: Batch File Upload**
+- Upload CSV/Parquet files to AEP (via UI or API)
+- Scheduled daily/weekly
+- **Latency:** Hours to days
+- **Best for:** CRM exports, offline data
+
+**Method 3: Source Connectors (Pre-Built Integrations)**
+- AEP provides 100+ connectors: Salesforce, Marketo, Google Ads, BigQuery, Snowflake, etc.
+- Configure once, data syncs automatically (batch or streaming depending on connector)
+- **Latency:** Varies by connector
+- **Best for:** Connecting existing marketing tools
+
+**Method 4: Streaming API (Custom Integration)**
+- Your systems send data to AEP via HTTP API
+- Real-time streaming
+- **Latency:** <1 second
+- **Best for:** Custom applications, real-time scoring systems
+
+**Method 5: Federated Queries (No Data Upload)**
+- AEP queries your BigQuery/Snowflake directly
+- No data copied to AEP
+- **Latency:** N/A (query on-demand)
+- **Best for:** Zero-copy architecture
+
+---
+
+#### Q7: Where does AEP send data? (Destinations)
+
+**Pre-Built Destinations (100+ supported):**
+
+**Advertising Platforms:**
+- Google Ads, Meta (Facebook/Instagram), LinkedIn Ads, TikTok, Pinterest, etc.
+
+**Email & Marketing Automation:**
+- Marketo, Eloqua, HubSpot, Salesforce Marketing Cloud, Braze, etc.
+
+**Analytics & Data Warehouses:**
+- Google Analytics, Adobe Analytics, BigQuery, Snowflake, Databricks, etc.
+
+**CRM & Sales:**
+- Salesforce, Dynamics 365, etc.
+
+**Custom Destinations:**
+- Your own APIs via webhook/HTTP streaming
+- SFTP for file exports
+
+**How it works:**
+1. Create segment in AEP: "Hot Leads" (10,000 customers)
+2. Activate to Google Ads
+3. AEP sends 10,000 customer IDs (or emails) to Google Ads
+4. Google Ads creates a custom audience
+5. Your ads target only these 10,000 people
+
+---
+
+#### Q8: What's the Profile Store and do I have to use it?
+
+**What it is:** AEP's database that stores unified customer profiles (all attributes, identities, segment memberships for each customer).
+
+**Do you have to use it?**
+
+**Traditional AEP:** Yes
+- All data must be in Profile Store for segmentation
+- Real-time lookups require profiles in the store
+- Identity Graph, Customer AI, edge segmentation all require Profile Store
+
+**With Federated Audience Composition:** No
+- Profiles stay in your BigQuery/Snowflake
+- AEP just queries your warehouse
+- Profile Store only holds audience IDs (minimal data)
+
+**Trade-Offs:**
+- **Using Profile Store:** Full AEP features, vendor lock-in, higher cost
+- **Skipping Profile Store (Federated):** Zero vendor lock-in, lower cost, limited features
+
+---
+
+#### Q9: Can AEP query my data warehouse directly? (Federated Audience Composition)
+
+**Yes! This is the Federated Audience Composition feature (NEW in 2024/2025).**
+
+**Supported Warehouses:**
+- Google BigQuery ✅
+- Snowflake ✅
+- Databricks ✅
+- Azure Synapse ✅
+- Amazon Redshift ✅
+- Oracle ✅
+- Vertica ✅
+- Microsoft Fabric ✅
+
+**How it works:**
+1. Configure secure connection from AEP to your warehouse (service account, VPN)
+2. Build audience composition in AEP UI (drag-and-drop, like building SQL visually)
+3. AEP executes query against your warehouse
+4. Warehouse returns customer IDs matching criteria
+5. AEP creates "External Audience" with just the IDs
+6. Activate to destinations
+
+**Data stays in your warehouse:** TRUE zero-copy architecture
+
+**See also:** [Option 1: Federated Audience Composition](aep-zero-copy-executive-summary.md)
+
+---
+
+#### Q10: What happens to my data if I stop using AEP?
+
+**If using Profile Store (traditional approach):**
+- Profiles and historical data stored in AEP are LOST when you cancel
+- You can export data before cancellation (via API or batch exports), but it's painful
+- Segment definitions are AEP-specific, must rebuild in new platform
+
+**If using Federated Audience Composition:**
+- All data stays in your warehouse (BigQuery/Snowflake)
+- You lose access to AEP's UI and activation capabilities
+- But your data, models, and segmentation logic remain intact
+- Easy to point a different platform at the same data
+
+**Recommendation:** If vendor lock-in is a concern, use Federated Audience Composition or keep all business logic in your warehouse.
+
+---
+
+### Identity & Profiles
+
+#### Q11: Why is identity stitching important?
+
+**See full deep dive:** [Identity Stitching - Deep Dive](#identity-stitching---deep-dive)
+
+**Quick Answer:**
+- Customers interact via multiple devices/channels (web, mobile, email, phone)
+- Identity stitching connects these touchpoints into ONE unified profile
+- Enables: Personalization, attribution, consistent experience
+
+**Without identity stitching:**
+- Anonymous visitor on laptop ≠ Known customer on mobile app (treated as 2 people)
+
+**With identity stitching:**
+- Same person recognized across laptop, mobile, email → Unified experience
+
+**When NOT needed:**
+- Single-channel campaigns (email-only)
+- No cross-device tracking required
+- Using Federated Audience Composition (do identity resolution in your warehouse instead)
+
+---
+
+#### Q12: What if I don't need cross-device tracking?
+
+**Great news:** You can simplify significantly.
+
+**Scenarios where cross-device tracking is NOT needed:**
+
+**1. B2B Email Campaigns Only**
+- You only send emails to business contacts
+- Email address is the sole identifier
+- No website personalization, no mobile app
+
+**Recommendation:** Skip AEP Identity Graph. Use email as primary ID.
+
+**2. Anonymous Website Analytics**
+- You track website traffic patterns (not individual users)
+- No personalization needed
+
+**Recommendation:** Use Adobe Analytics instead of AEP.
+
+**3. Server-Side Lead Scoring**
+- You score leads in your CRM or data warehouse
+- No need to track individual web sessions
+
+**Recommendation:** Use Federated Audience Composition to query your warehouse.
+
+---
+
+#### Q13: How does AEP handle anonymous visitors?
+
+**Flow:**
+
+**1. First Visit (Anonymous):**
+- User visits website for the first time
+- Adobe SDK assigns a cookie ID (ECID - Experience Cloud ID): `abc123`
+- Profile created with ECID only
+- No email, name, or known attributes yet
+
+**2. User Takes Action (Becomes Known):**
+- User fills out form, providing email: `john@company.com`
+- OR user logs in with existing account
+
+**3. Identity Stitching Happens:**
+- AEP links ECID `abc123` ↔ Email `john@company.com`
+- Anonymous profile merges with known profile
+- All past anonymous activity now attributed to John
+
+**4. Future Visits:**
+- User returns (cookie still present OR logs in)
+- AEP recognizes: "This is John, our hot lead!"
+- Personalized experience starts
+
+**Example:**
+- **Monday (Anonymous):** Visitor `abc123` views Product X pricing page
+- **Tuesday (Becomes Known):** Visitor fills form, provides email `john@company.com`
+- **Wednesday (Personalized):** John returns → Website shows: "Welcome back! Still interested in Product X?"
+
+---
+
+#### Q14: Can I use my own customer IDs instead of AEP's Identity Graph?
+
+**Yes! Two approaches:**
+
+**Approach 1: Use Your CRM ID as Primary Identity**
+- Skip AEP's Identity Graph entirely
+- Use your existing CRM customer ID as the primary identifier
+- All data keyed by CRM ID
+- **Pro:** Simple, you control the logic
+- **Con:** No automatic cross-device stitching
+
+**Approach 2: Hybrid (Your ID + AEP Identity Graph)**
+- Use your CRM ID as primary
+- Let AEP Identity Graph link cookie/mobile IDs to your CRM ID
+- **Pro:** Best of both worlds
+- **Con:** More complex setup
+
+**Approach 3: Federated Audience Composition**
+- Do ALL identity resolution in your BigQuery/Snowflake
+- AEP doesn't handle identities at all, just queries your data
+- **Pro:** Complete control, zero vendor lock-in
+- **Con:** You build and maintain identity logic yourself
+
+**Most common:** Approach 2 (Hybrid) for enterprises with existing CRM systems.
+
+---
+
+### Segmentation & Activation
+
+#### Q15: What's the difference between segments and audiences?
+
+**See full explanation:** [Segments vs Audiences](#segments-vs-audiences---whats-the-difference)
+
+**Quick Answer:**
+- **Segment:** The rule/definition (e.g., "Customers who purchased in last 30 days")
+- **Audience:** The actual list of customer IDs matching that rule at a specific time
+
+**Think of it like:**
+- Segment = Recipe
+- Audience = Finished cake
+
+**In practice:** You BUILD a segment, you ACTIVATE an audience.
+
+---
+
+#### Q16: How fast can I create and activate an audience?
+
+**Depends on the type:**
+
+**Batch Segment:**
+- **Create:** 5-30 minutes (design segment in UI)
+- **Evaluate:** 24 hours (overnight batch job)
+- **Activate:** 1-2 hours (send to destination)
+- **Total:** ~26-27 hours from creation to activation
+
+**Streaming Segment:**
+- **Create:** 5-30 minutes
+- **Evaluate:** Real-time (as profiles update)
+- **Activate:** <5 minutes
+- **Total:** <1 hour from creation to first activation
+
+**Federated Audience (External):**
+- **Create:** 10-60 minutes (build query in AEP or SQL in warehouse)
+- **Evaluate:** Depends on warehouse query speed (minutes to hours)
+- **Activate:** 30 min - 2 hours
+- **Total:** 1-4 hours
+
+**Edge Segment:**
+- **Create:** 5-30 minutes
+- **Evaluate:** <50 milliseconds (at edge)
+- **Activate:** Immediate (for web/Target use cases)
+- **Total:** Same day
+
+---
+
+#### Q17: What's edge segmentation and when do I need it?
+
+**See full deep dive:** [Edge Segmentation - Deep Dive](#edge-segmentation---deep-dive)
+
+**Quick Answer:**
+- **What:** Ultra-fast segmentation (<50ms) on edge servers near the user
+- **When:** Real-time website personalization, Adobe Target A/B tests, mobile app in-session experiences
+
+**Examples:**
+- Show different homepage hero based on VIP status
+- A/B test personalized for customer segment
+- Mobile app shows different screen for new vs returning users
+
+**When NOT needed:**
+- Batch email campaigns (no one cares if segment evaluation takes 24 hours)
+- Backend processing (doesn't need <50ms latency)
+
+---
+
+#### Q18: Can I use SQL to create segments?
+
+**Not directly in AEP's UI, but YES via Federated Audience Composition:**
+
+**Traditional AEP Segment Builder:**
+- Drag-and-drop UI (no SQL)
+- Build conditions like: `lead_score > 80 AND region = 'California'`
+- No SQL knowledge required
+
+**AEP Query Service (Advanced):**
+- Write SQL queries against AEP's data lake
+- For data exploration, not real-time segmentation
+
+**Federated Audience Composition (BEST for SQL users):**
+- Write SQL directly in your BigQuery/Snowflake
+- AEP executes your query and imports results as an audience
+- **Example:**
+```sql
+SELECT customer_id
+FROM `project.dataset.customers`
+WHERE lead_score > 80
+  AND last_purchase_date > DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+  AND total_lifetime_value > 10000
+```
+- AEP imports the customer IDs as an External Audience
+
+**Bottom Line:** If you love SQL, use Federated Audience Composition. If you prefer UI, use Segment Builder.
+
+---
+
+#### Q19: What are External Audiences?
+
+**Definition:** Audience lists created OUTSIDE of AEP (in your data warehouse, via CSV, or using Federated Audience Composition) and imported into AEP.
+
+**How they work:**
+1. You identify customers in your system (BigQuery, Snowflake, CSV)
+2. Upload list of customer IDs to AEP (via API, file upload, or Federated Audience Composition)
+3. AEP creates an "External Audience" with these IDs
+4. Activate to destinations like any other audience
+
+**Key Difference from Regular Segments:**
+- Regular segments: AEP defines the logic, evaluates against Profile Store
+- External audiences: YOU define the logic, AEP just receives the results
+
+**Use Cases:**
+- Complex ML models in your warehouse
+- Leverage existing data pipelines
+- Zero-copy architecture (Federated Audience Composition)
+
+**Limitations:**
+- Static (not re-evaluated by AEP automatically)
+- 30-day TTL by default (must refresh periodically)
+- Can't use AEP segment builder to modify the logic
+
+---
+
+### Zero-Copy Architecture
+
+#### Q20: Can I use AEP without copying all my data into it?
+
+**Yes! Federated Audience Composition enables TRUE zero-copy architecture.**
+
+**The Problem:**
+- Traditional AEP: Copy all customer data (100+ fields per profile, millions of profiles) from your systems to AEP
+- Result: Massive data transfer, duplication, sync complexity, vendor lock-in
+
+**The Solution (Federated Audience Composition):**
+- Keep ALL data in your warehouse (BigQuery, Snowflake)
+- AEP queries your warehouse when you build audiences
+- Only audience IDs transferred to AEP (not full profiles)
+- **Result:** 99.96% data reduction, zero vendor lock-in
+
+**See:** [Option 1: Federated Audience Composition](aep-zero-copy-executive-summary.md)
+
+---
+
+#### Q21: What's Federated Audience Composition?
+
+**See full glossary entry:** [Federated Audience Composition](#federated-audience-composition)
+
+**Elevator Pitch:**
+- NEW AEP capability (2024/2025)
+- AEP queries your BigQuery/Snowflake DIRECTLY
+- No data copied to AEP
+- Build audiences using drag-and-drop UI
+- AEP executes query, gets customer IDs, activates to destinations
+- **TRUE zero-copy architecture**
+
+**Supported Warehouses:** BigQuery, Snowflake, Databricks, Azure Synapse, Redshift, Oracle, Vertica, Microsoft Fabric
+
+**Cost:** $40K-$80K/year add-on (on top of RT-CDP license)
+
+---
+
+#### Q22: If I use Federated Audience Composition, what AEP features do I lose?
+
+**Features NOT Available with Federated Audience Composition:**
+
+❌ **Real-Time Customer Profile lookups** (<100ms)
+- Can't power website personalization requiring instant profile data
+
+❌ **AEP Identity Graph**
+- Must do identity stitching in your warehouse yourself
+
+❌ **Customer AI / Attribution AI**
+- Adobe's AI services require profiles in AEP Profile Store
+
+❌ **Edge Segmentation**
+- Requires profiles on edge servers
+
+❌ **Streaming Segmentation**
+- Federated audiences are batch-only (daily/hourly refresh)
+
+❌ **Profile Enrichment from Multiple Sources**
+- If you query BigQuery, you can't also enrich with Salesforce data in real-time (unless you join it in BigQuery)
+
+**Features STILL Available:**
+
+✅ **Batch Segmentation**
+- Daily/weekly audience creation
+
+✅ **Activation to Destinations**
+- Google Ads, Marketo, Meta, etc. work fine
+
+✅ **Journey Optimizer**
+- Can use External Audiences in journeys
+
+✅ **Audience Composition UI**
+- Drag-and-drop query builder
+
+**Bottom Line:** If you need real-time (<5 min) or Customer AI, use Option 2 or 3. If batch campaigns (daily/weekly) are sufficient, Federated Audience Composition (Option 1) is perfect.
+
+---
+
+#### Q23: Should I use Federated Audience Composition or stream computed attributes?
+
+**Use Decision Tree:**
+
+**Choose Federated Audience Composition (Option 1) if:**
+- ✅ Batch campaigns (daily/weekly) are sufficient
+- ✅ Vendor lock-in is a major concern
+- ✅ Data sovereignty is critical (data must stay in your region/cloud)
+- ✅ Cost optimization is a priority
+- ✅ You have strong data engineering in BigQuery/Snowflake
+- ✅ You don't need Customer AI or Identity Graph
+
+**Choose Computed Attributes (Option 2) if:**
+- ✅ Real-time (<5 min) activation is required
+- ✅ You need Customer AI or Attribution AI
+- ✅ Cross-device identity stitching via AEP Identity Graph is valuable
+- ✅ You want business users to build segments in AEP UI (not SQL)
+- ✅ Website personalization requiring <100ms lookups
+
+**Choose Hybrid (Option 3) if:**
+- ✅ You need BOTH batch (99%) and real-time (1%)
+- ✅ Most use cases are batch, but a few critical flows need real-time
+- ✅ You want cost efficiency of Federated for bulk + real-time for high-value segments
+
+**See full comparison:** [AEP Zero-Copy Executive Summary](aep-zero-copy-executive-summary.md)
+
+---
+
+#### Q24: Can I start with Federated and add real-time later?
+
+**Yes! This is the "Hybrid Selective" approach (Option 3).**
+
+**Phased Rollout:**
+
+**Phase 1 (Weeks 1-4): Federated Only**
+- Implement Federated Audience Composition for ALL use cases
+- Daily/weekly batch audiences
+- Low cost, fast implementation
+- Prove value with 80-90% of use cases
+
+**Phase 2 (Months 2-3): Identify Real-Time Needs**
+- Audit use cases: Which ones would benefit from <5 min latency?
+- Quantify ROI: "Sales alerts for hot leads generate $500K/year"
+- Select 1-3 critical real-time use cases
+
+**Phase 3 (Months 3-6): Add Streaming for Real-Time Subset**
+- Stream computed attributes for <10% of profiles
+- Enable real-time segmentation for specific use cases
+- Keep 90%+ as federated (cost-efficient)
+
+**Result:** Best of both worlds - 99% federated (low cost, low lock-in) + 1% real-time (high value, targeted)
+
+**See:** [Option 3: Hybrid Selective Pattern](aep-zero-copy-executive-summary.md)
+
+---
+
+### Costs & Licensing
+
+#### Q25: How is AEP priced? (Profiles, API calls, storage?)
+
+**Primary Pricing Dimension: Number of Addressable Profiles**
+
+**What's an "Addressable Profile"?**
+- A customer profile that can be activated to marketing channels
+- Excludes: Anonymous visitors who never identified themselves, test profiles, deleted profiles
+
+**Tiers:**
+- 0-10M profiles: Foundation/Select tier
+- 10M-50M profiles: Select/Prime tier
+- 50M-100M profiles: Prime tier
+- 100M+ profiles: Ultimate tier (custom pricing)
+
+**Additional Costs (May Apply):**
+- **API Calls (Streaming Ingestion):** Some contracts charge per 1K API calls (~$0.10-$0.50 per 1K)
+- **Storage:** Profile storage costs (typically bundled, but can be metered at very high volumes)
+- **Compute (Query Service):** If using AEP Query Service heavily, compute hours may be charged
+- **Destinations:** Some destination connectors have per-activation fees
+- **Add-Ons:** Customer AI, Federated Audience Composition, Attribution AI (separate SKUs)
+
+**Typical Contract Structure:**
+- Base RT-CDP license: $200K/year (includes X million profiles, Y API calls)
+- Journey Optimizer: +$100K/year
+- Federated Audience Composition: +$50K/year
+- Overage charges if you exceed profile/API limits
+
+**Bottom Line:** Pricing is primarily profile-based, with add-ons for premium features. Negotiate your contract carefully.
+
+---
+
+#### Q26: What's the minimum commitment for AEP?
+
+**Typical Minimum:**
+- **1-year contract** for Foundation/Select tiers
+- **3-year contract** for Prime/Ultimate tiers (with better pricing)
+
+**Profile Minimums:**
+- Foundation: Often starts at 1M-5M profiles (though you may have fewer)
+- Select: 5M-10M profiles
+- Prime: 10M+ profiles
+
+**Dollar Minimums:**
+- Expect $150K-$200K/year MINIMUM total spend (RT-CDP + add-ons)
+- Smaller companies might negotiate lower, but Adobe targets enterprise
+
+**What happens if you're below minimums?**
+- You still pay for the minimum tier (e.g., if you have 2M profiles but license is 5M minimum, you pay for 5M)
+
+**Can you cancel early?**
+- Usually NO - contracts are binding
+- Early termination fees apply (often 50-100% of remaining contract value)
+
+**Bottom Line:** AEP is an enterprise platform with enterprise commitments. Not ideal for small businesses or short-term experiments.
+
+---
+
+#### Q27: Are there hidden costs I should know about?
+
+**Yes, watch out for these:**
+
+**1. Professional Services / Implementation**
+- Adobe may require or strongly recommend their Professional Services team
+- Cost: $50K-$200K for implementation (6-12 weeks)
+- Includes: Schema design, data ingestion setup, segment building, training
+
+**2. API Overage Charges**
+- If you exceed your contracted API call limit, overage fees kick in
+- Example: Contract includes 100M API calls/month, you use 150M → Pay for 50M overage
+- Rate: ~$0.10-$0.50 per 1,000 extra calls
+
+**3. Profile Overage Charges**
+- Similar to API overages
+- If licensed for 10M profiles but have 12M → Pay for 2M overage
+- Rate: Varies by tier and contract
+
+**4. Destination Connector Fees**
+- Some destinations (especially enterprise ones) may have per-activation fees
+- Example: Activating to Salesforce Marketing Cloud might incur SFMC API costs
+
+**5. Data Egress (Network Transfer)**
+- If AEP sends large volumes of data to destinations, network egress fees may apply
+- Usually not significant unless sending TBs
+
+**6. Training & Enablement**
+- Adobe University courses, workshops, certifications
+- Cost: $5K-$20K for team training
+
+**7. Ongoing Support**
+- Standard support included
+- Premium support (faster response times, dedicated CSM): +$20K-$50K/year
+
+**Bottom Line:** Budget 20-30% on top of license costs for these hidden expenses. First-year total cost is often 2x the license fee.
+
+---
+
+#### Q28: How can I reduce AEP costs?
+
+**Strategy 1: Use Federated Audience Composition**
+- Avoid copying all data to AEP (Profile Store costs)
+- Reduce API ingestion costs (no streaming)
+- **Savings:** 30-50% vs full profile ingestion
+
+**Strategy 2: Start with Lower Tier**
+- Begin with Foundation or Select instead of jumping to Prime
+- Upgrade later when you prove ROI
+
+**Strategy 3: Optimize Profile Counts**
+- Remove inactive/churned customers from Profile Store
+- Don't create profiles for every anonymous visitor (use thresholds: e.g., only create profile if visitor engages 3+ times)
+- **Savings:** 10-20% by reducing billable profiles
+
+**Strategy 4: Batch Instead of Streaming**
+- Use batch ingestion where real-time isn't required
+- Reduces API call costs significantly
+- **Savings:** 40-60% on ingestion costs
+
+**Strategy 5: Limit Edge Segmentation**
+- Only enable edge projection for critical attributes (not all 100+ fields)
+- Reduces edge server costs
+
+**Strategy 6: Negotiate Multi-Year Contracts**
+- 3-year commit often gets 15-25% discount vs 1-year
+
+**Strategy 7: Challenge the Need for AEP**
+- If your use case is simple (batch email campaigns only), consider cheaper alternatives:
+  - Segment.com: 50% cheaper
+  - Reverse ETL tools (Census, Hightouch): 70% cheaper
+  - DIY with BigQuery + Dataflow: 80% cheaper
+
+**Strategy 8: Hybrid Approach (Option 3)**
+- Federated for 99% of use cases
+- Streaming for 1% high-value real-time needs
+- **Savings:** 20-40% vs full streaming approach
+
+**Bottom Line:** The biggest savings come from NOT storing full profiles in AEP (use Federated Audience Composition).
+
+---
+
+## About This Document
+
+**Created:** October 2025
+**Purpose:** Educate business stakeholders on AEP concepts without requiring deep technical expertise
+**Target Audience:** Executives, marketing managers, business analysts, product managers, data teams evaluating AEP
+
+**Related Documents:**
+- [AEP Zero-Copy Executive Summary](aep-zero-copy-executive-summary.md) - Strategic decision guide for architecture options
+- [AEP Zero-Copy Architecture Options](aep-zero-copy-architecture-options.md) - Detailed technical implementation guide
+- [GCP Zero-Copy Architecture Options](gcp-zero-copy-architecture-options.md) - GCP-specific implementation guide
+
+**Feedback:** This is a living document. If you have questions not covered here, please add them to the FAQ section.
+
+---
+
+**End of Document** | Total Length: ~2,800 lines
