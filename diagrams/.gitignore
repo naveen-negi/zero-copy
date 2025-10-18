@@ -1,0 +1,8 @@
+# Ignore generated diagram images
+*.png
+*.svg
+*.pdf
+*.eps
+
+# Keep the source PlantUML files
+!*.puml

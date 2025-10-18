@@ -1,0 +1,68 @@
+@startuml decision-flow
+!define OPTION1_COLOR #4285F4
+!define OPTION2_COLOR #EA4335
+!define OPTION3_COLOR #FBBC04
+
+skinparam activity {
+    BackgroundColor<<option1>> OPTION1_COLOR
+    BackgroundColor<<option2>> OPTION2_COLOR
+    BackgroundColor<<option3>> OPTION3_COLOR
+    BorderColor Black
+    FontColor White
+}
+
+title AEP Zero-Copy Architecture Decision Flow
+
+start
+
+:What's your **primary need**?;
+
+if (Need real-time activation\nwith <5 minute latency?) then (yes)
+    :What **% of use cases**\nneed real-time?;
+
+    if (Percentage?) then (<10%)
+        :OPTION 3:\n**HYBRID SELECTIVE**\n====\n99% Federated (Batch)\n1% Real-Time Streaming\n====\n$286K-$693K/year\n6-12 weeks implementation] <<option3>>
+        stop
+    elseif (10-50%)
+        :Cost vs Simplicity\npreference?;
+
+        if (Prefer?) then (Cost optimization)
+            :OPTION 3:\n**HYBRID SELECTIVE**\n====\n99% Federated (Batch)\n1% Real-Time Streaming\n====\n$286K-$693K/year\n6-12 weeks implementation] <<option3>>
+            stop
+        else (Simplicity)
+            :OPTION 2:\n**COMPUTED ATTRIBUTES**\n====\nFull Real-Time\nStreaming Profiles\n====\n$248K-$858K/year\n4-8 weeks implementation] <<option2>>
+            stop
+        endif
+    else (>50%)
+        :OPTION 2:\n**COMPUTED ATTRIBUTES**\n====\nFull Real-Time\nStreaming Profiles\n====\n$248K-$858K/year\n4-8 weeks implementation] <<option2>>
+        stop
+    endif
+
+else (no)
+    :Is this a **purely batch**\nuse case?\n(daily/weekly campaigns);
+
+    if (Batch only?) then (yes)
+        :Do you need AEP's\n**Customer AI** or\n**Attribution AI**?;
+
+        if (Need AI features?) then (no)
+            :OPTION 1:\n**FEDERATED AUDIENCE COMPOSITION**\n====\n✓ TRUE Zero-Copy\n✓ Data stays in BigQuery\n✓ Zero vendor lock-in\n====\n$247K-$701K/year\n2-4 weeks implementation] <<option1>>
+            stop
+        else (yes)
+            :OPTION 2 or 3:\n**COMPUTED ATTRIBUTES**\nor **HYBRID**\n====\n(Customer AI requires\nprofiles in AEP)] <<option2>>
+            stop
+        endif
+
+    else (might need real-time later)
+        :Can you **delay real-time**\nfor 6-12 months?;
+
+        if (Can delay?) then (yes)
+            :OPTION 1:\n**FEDERATED AUDIENCE COMPOSITION**\n====\nStart simple\nAdd real-time later if needed\n====\n$247K-$701K/year\n2-4 weeks implementation] <<option1>>
+            stop
+        else (no)
+            :OPTION 3:\n**HYBRID SELECTIVE**\n====\nPlan for phased rollout\nFederated first, then real-time\n====\n$286K-$693K/year\n6-12 weeks implementation] <<option3>>
+            stop
+        endif
+    endif
+endif
+
+@enduml

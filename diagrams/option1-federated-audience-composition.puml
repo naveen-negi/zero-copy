@@ -1,0 +1,92 @@
+@startuml option1-federated-audience-composition
+!define GCP_COLOR #4285F4
+!define ADOBE_COLOR #FF0000
+!define DEST_COLOR #34A853
+
+skinparam rectangle {
+    BackgroundColor<<gcp>> GCP_COLOR
+    BackgroundColor<<adobe>> ADOBE_COLOR
+    BackgroundColor<<dest>> DEST_COLOR
+    BorderColor Black
+    FontColor White
+}
+
+skinparam database {
+    BackgroundColor #FBBC04
+    BorderColor Black
+}
+
+skinparam note {
+    BackgroundColor #FFFACD
+    BorderColor Black
+}
+
+title Option 1: Federated Audience Composition (RECOMMENDED)\nTRUE Zero-Copy Architecture
+
+package "Google Cloud Platform (GCP)" <<gcp>> {
+    database "BigQuery\nData Warehouse" as bq {
+        rectangle "Customer Profiles" as profiles {
+            -- customer_id
+            -- Raw behavioral data
+            -- 100+ attributes
+            -- (10M profiles, 2-10 TB)
+        }
+
+        rectangle "Lead Scoring Models" as models {
+            -- Cold/Warm/Hot classification
+            -- Propensity scores
+            -- Computed in BigQuery SQL
+        }
+    }
+
+    note right of bq
+        **Data stays in GCP**
+        ✓ Zero vendor lock-in
+        ✓ GDPR compliant
+        ✓ Full control
+    end note
+}
+
+package "Adobe Experience Platform" <<adobe>> {
+    rectangle "Federated Audience\nComposition" as fac {
+        -- Drag-and-drop UI
+        -- Executes SQL on BigQuery
+        -- No data copied to AEP
+    }
+
+    rectangle "External Audiences" as audiences {
+        -- Customer IDs only
+        -- "Hot Leads": 500K IDs
+        -- "Warm Leads": 1.5M IDs
+        -- 30-day TTL, auto-refresh
+    }
+}
+
+package "Marketing Destinations" <<dest>> {
+    rectangle "Marketo\nCampaigns" as marketo
+    rectangle "Google Ads\nTargeting" as gads
+    rectangle "Meta Ads\nAudiences" as meta
+}
+
+bq -down-> fac : Query in-place\n(federated SQL)\nSecure VPN/IP Allowlist
+fac -down-> audiences : Transfers ONLY\naudience IDs\n(500K IDs × 20 bytes = 10 MB)
+audiences -down-> marketo : Activate\naudiences
+audiences -down-> gads
+audiences -down-> meta
+
+note bottom
+    **KEY BENEFITS:**
+    ✓ 99.96% data reduction (10 MB vs 2-10 TB)
+    ✓ $247K-$701K/year (50% cost savings)
+    ✓ 2-4 weeks implementation
+    ✓ Zero vendor lock-in (all logic in BigQuery)
+    ✓ Data never leaves GCP
+
+    **LIMITATIONS:**
+    ⚠ Batch-only (daily/hourly refresh)
+    ⚠ No real-time (<1 min latency)
+    ⚠ No Customer AI / Attribution AI
+    ⚠ No AEP Identity Graph
+end note
+
+@enduml
