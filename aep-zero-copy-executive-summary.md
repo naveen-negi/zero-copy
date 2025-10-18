@@ -44,6 +44,82 @@ After comprehensive analysis of 6 architecture patterns, three emerge as viable 
 
 ## Option 1: Federated Audience Composition (RECOMMENDED)
 
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  GOOGLE CLOUD PLATFORM (GCP)                                        │
+│                                                                      │
+│  ┌──────────────────────────────────────┐                          │
+│  │  BigQuery (Data Warehouse)           │                          │
+│  │                                       │                          │
+│  │  ┌────────────────────────────────┐  │                          │
+│  │  │  Customer Profiles             │  │                          │
+│  │  │  • customer_id                 │  │                          │
+│  │  │  • Raw behavioral data         │  │                          │
+│  │  │  • 100+ attributes             │  │     Data stays in GCP    │
+│  │  │  (10M profiles, 2-10 TB)       │  │     ✓ Zero vendor lock-in │
+│  │  └────────────────────────────────┘  │     ✓ GDPR compliant      │
+│  │                                       │                          │
+│  │  ┌────────────────────────────────┐  │                          │
+│  │  │  Lead Scoring Models           │  │                          │
+│  │  │  • Cold/Warm/Hot classification│  │                          │
+│  │  │  • Propensity scores           │  │                          │
+│  │  │  • Computed in BigQuery SQL    │  │                          │
+│  │  └────────────────────────────────┘  │                          │
+│  └──────────────────────────────────────┘                          │
+│           ▲                   │                                      │
+│           │                   │                                      │
+│           │                   │ Query in-place                       │
+│           │                   │ (federated SQL)                      │
+│           │                   ▼                                      │
+└───────────┼──────────────────────────────────────────────────────────┘
+            │
+            │ Secure VPN/IP Allowlist
+            │
+┌───────────┼──────────────────────────────────────────────────────────┐
+│           │  ADOBE EXPERIENCE PLATFORM                               │
+│           │                                                           │
+│           │  ┌────────────────────────────────────┐                 │
+│  Queries  │  │  Federated Audience Composition    │                 │
+│  execute  └──┤  • Drag-and-drop UI                │                 │
+│     here     │  • Executes SQL on BigQuery        │                 │
+│              │  • No data copied to AEP           │                 │
+│              └────────────────────────────────────┘                 │
+│                          │                                           │
+│                          │ Transfers ONLY audience IDs               │
+│                          │ (500K IDs × 20 bytes = 10 MB)            │
+│                          ▼                                           │
+│              ┌────────────────────────────────────┐                 │
+│              │  External Audiences                │                 │
+│              │  • Customer IDs only               │                 │
+│              │  • "Hot Leads": 500K IDs           │                 │
+│              │  • "Warm Leads": 1.5M IDs          │                 │
+│              │  • 30-day TTL, auto-refresh        │                 │
+│              └────────────────────────────────────┘                 │
+│                          │                                           │
+└──────────────────────────┼───────────────────────────────────────────┘
+                           │
+                           │ Activate audiences
+                           │
+┌──────────────────────────┼───────────────────────────────────────────┐
+│  MARKETING DESTINATIONS  │                                           │
+│                          ▼                                           │
+│   ┌─────────────┐   ┌──────────────┐   ┌────────────┐             │
+│   │  Marketo    │   │  Google Ads  │   │  Meta Ads  │             │
+│   │             │   │              │   │            │             │
+│   │  Campaigns  │   │  Targeting   │   │  Audiences │             │
+│   └─────────────┘   └──────────────┘   └────────────┘             │
+└───────────────────────────────────────────────────────────────────────┘
+
+KEY BENEFITS:
+✓ 99.96% data reduction (10 MB vs 2-10 TB)
+✓ $247K-$701K/year (50% cost savings)
+✓ 2-4 weeks implementation
+✓ Zero vendor lock-in (all logic in BigQuery)
+✓ Data never leaves GCP
+```
+
 ### What It Is
 
 Federated Audience Composition (FAC) is Adobe's 2024/2025 capability that allows AEP to query your BigQuery data warehouse DIRECTLY without copying data into Adobe's systems. You build audiences using a drag-and-drop UI that executes SQL queries against your BigQuery tables, then transfer only the resulting customer IDs to AEP for activation.
@@ -172,6 +248,100 @@ Federated Audience Composition (FAC) is Adobe's 2024/2025 capability that allows
 
 ## Option 2: Computed Attributes Pattern
 
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  GOOGLE CLOUD PLATFORM (GCP)                                        │
+│                                                                      │
+│  ┌──────────────────────────────────────┐                          │
+│  │  BigQuery (Data Warehouse)           │                          │
+│  │                                       │                          │
+│  │  ┌────────────────────────────────┐  │                          │
+│  │  │  Raw Customer Data (stays)     │  │                          │
+│  │  │  • 100+ behavioral attributes  │  │                          │
+│  │  │  • Historical events           │  │                          │
+│  │  │  (10M profiles, 2-10 TB)       │  │                          │
+│  │  └────────────────────────────────┘  │                          │
+│  │           │                           │                          │
+│  │           │ Daily/hourly scoring      │                          │
+│  │           ▼                           │                          │
+│  │  ┌────────────────────────────────┐  │                          │
+│  │  │  Lead Scoring Models           │  │                          │
+│  │  │  • ML models execute           │  │                          │
+│  │  │  • Compute scores/flags        │  │                          │
+│  │  └────────────────────────────────┘  │                          │
+│  │           │                           │                          │
+│  │           ▼                           │                          │
+│  │  ┌────────────────────────────────┐  │                          │
+│  │  │  Computed Attributes           │  │                          │
+│  │  │  (Minimal, 5-10 fields)        │  │                          │
+│  │  │  • lead_classification: "hot"  │  │                          │
+│  │  │  • propensity_score: 0.87      │  │                          │
+│  │  │  • engagement_index: 42        │  │                          │
+│  │  │  (10M × 5 fields = 500 MB)     │  │                          │
+│  │  └────────────────────────────────┘  │                          │
+│  └──────────────────────────────────────┘                          │
+│           │                                                          │
+│           │ Stream derived attributes only                          │
+│           │ (Cloud Function/Cloud Run)                              │
+│           ▼                                                          │
+└───────────────────────────────────────────────────────────────────────┘
+            │
+            │ HTTPS API
+            │ (Streaming Ingestion)
+            │
+┌───────────┼──────────────────────────────────────────────────────────┐
+│           │  ADOBE EXPERIENCE PLATFORM                               │
+│           ▼                                                           │
+│   ┌────────────────────────────────────┐                            │
+│   │  Streaming Ingestion API           │                            │
+│   │  • Receives minimal profiles       │                            │
+│   │  • ~500 MB/day (vs 50-100 GB)      │                            │
+│   └────────────────────────────────────┘                            │
+│              │                                                        │
+│              ▼                                                        │
+│   ┌────────────────────────────────────┐                            │
+│   │  Real-Time Customer Profile        │                            │
+│   │  • Stores computed attributes      │                            │
+│   │  • 10M profiles × 5 fields         │                            │
+│   │  • Enables fast lookups (<100ms)   │                            │
+│   │  • Supports Customer AI            │                            │
+│   └────────────────────────────────────┘                            │
+│              │                                                        │
+│              ▼                                                        │
+│   ┌────────────────────────────────────┐                            │
+│   │  Segmentation Engine               │                            │
+│   │  • "Hot Leads" (lead_class = hot)  │                            │
+│   │  • "High Propensity" (score > 0.8) │                            │
+│   │  • Real-time evaluation (<5 min)   │                            │
+│   └────────────────────────────────────┘                            │
+│              │                                                        │
+└──────────────┼────────────────────────────────────────────────────────┘
+               │
+               │ Activate segments
+               │
+┌──────────────┼────────────────────────────────────────────────────────┐
+│  MARKETING   │                                                        │
+│  DESTINATIONS▼                                                        │
+│   ┌─────────────┐   ┌──────────────┐   ┌────────────┐              │
+│   │  Marketo    │   │  Google Ads  │   │  Sales CRM │              │
+│   │  (RT sync)  │   │  (RT sync)   │   │  (Alerts)  │              │
+│   └─────────────┘   └──────────────┘   └────────────┘              │
+└────────────────────────────────────────────────────────────────────────┘
+
+KEY BENEFITS:
+✓ 85-95% data reduction (500 MB vs 50-100 GB/day)
+✓ Real-time capability (2-10 min latency)
+✓ Full AEP features (Customer AI, Identity Graph)
+✓ $248K-$858K/year
+
+KEY TRADE-OFFS:
+⚠ Profiles stored in AEP (vendor lock-in)
+⚠ Higher cost vs Option 1
+⚠ Dual-system complexity
+```
+
 ### What It Is
 
 This pattern keeps your lead scoring computation in BigQuery but streams ONLY the derived results (scores, classifications, flags) to AEP as profile attributes. Instead of sending 100+ raw behavioral fields, you send 5-10 computed fields like "lead_classification: hot", "propensity_score: 0.87", "engagement_index: 42".
@@ -288,6 +458,77 @@ This pattern keeps your lead scoring computation in BigQuery but streams ONLY th
 ---
 
 ## Option 3: Hybrid Selective Pattern
+
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  GOOGLE CLOUD PLATFORM (GCP)                                        │
+│                                                                      │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │  BigQuery (Data Warehouse)                                   │  │
+│  │                                                               │  │
+│  │  ┌─────────────────────────┐  ┌──────────────────────────┐  │  │
+│  │  │ Batch Data (99%)        │  │ Real-Time Subset (1%)    │  │  │
+│  │  │ • 9.9M profiles         │  │ • 100K profiles          │  │  │
+│  │  │ • Lead classifications  │  │ • High-value leads       │  │  │
+│  │  │ • Campaign audiences    │  │ • Urgent actions needed  │  │  │
+│  │  └─────────────────────────┘  └──────────────────────────┘  │  │
+│  │           │                              │                   │  │
+│  └───────────┼──────────────────────────────┼───────────────────┘  │
+│              │                              │                       │
+│              │ PATH 1: Federated (Batch)    │ PATH 2: Streaming    │
+│              │                              │  (Real-Time)          │
+│              ▼                              ▼                       │
+└──────────────────────────────────────────────────────────────────────┘
+               │                              │
+        Query in-place                  Stream attributes
+        (daily/weekly)                  (2-10 min latency)
+               │                              │
+┌──────────────┼──────────────────────────────┼───────────────────────┐
+│              │  ADOBE EXPERIENCE PLATFORM   │                       │
+│              │                              │                       │
+│   ┌──────────▼─────────────┐    ┌──────────▼──────────────┐       │
+│   │ Federated Audiences    │    │ Profile Store           │       │
+│   │ (99% of volume)        │    │ (1% of volume)          │       │
+│   │                        │    │                         │       │
+│   │ • Hot leads (500K)     │    │ • 100K profiles         │       │
+│   │ • Warm leads (1.5M)    │    │ • Real-time scores      │       │
+│   │ • Campaign audiences   │    │ • Urgent flags          │       │
+│   │                        │    │                         │       │
+│   │ ✓ Zero vendor lock-in  │    │ • Enables Customer AI   │       │
+│   │ ✓ Cost: $40K-$80K/yr   │    │ • Fast lookups          │       │
+│   │ ✓ Daily refresh        │    │ • Cost: $10K-$30K/yr    │       │
+│   └────────────┬───────────┘    └──────────┬──────────────┘       │
+│                │                           │                       │
+│                └───────────┬───────────────┘                       │
+│                            │                                       │
+│                            │ Activate to destinations              │
+└────────────────────────────┼───────────────────────────────────────┘
+                             │
+┌────────────────────────────┼───────────────────────────────────────┐
+│  MARKETING DESTINATIONS    ▼                                       │
+│                                                                    │
+│  ┌──────────────────┐  ┌────────────────────┐  ┌──────────────┐  │
+│  │ Batch Campaigns  │  │ Real-Time Triggers │  │ Sales CRM    │  │
+│  │                  │  │                    │  │              │  │
+│  │ • Marketo        │  │ • Google Ads (RT)  │  │ • Alerts     │  │
+│  │ • Email nurture  │  │ • Chatbot triggers │  │ • Lead routing│ │
+│  │ • Weekly cadence │  │ • <5 min latency   │  │ • Immediate  │  │
+│  └──────────────────┘  └────────────────────┘  └──────────────┘  │
+└────────────────────────────────────────────────────────────────────┘
+
+HYBRID BENEFITS:
+✓ Best economics: $286K-$693K/year (20-30% less than full real-time)
+✓ 95-99% data reduction (99% via federated, 1% via streaming)
+✓ Real-time where it matters, batch where it's sufficient
+✓ 99% vendor independence (bulk logic in BigQuery)
+✓ Incremental adoption path (start federated, add real-time)
+
+USE CASE SPLIT:
+• 99% Batch: Daily nurture, weekly campaigns, suppression lists
+• 1% Real-Time: Sales alerts, urgent lead routing, time-sensitive offers
+```
 
 ### What It Is
 
@@ -441,6 +682,56 @@ This pattern combines the best of both approaches: use Federated Audience Compos
 ---
 
 ## Decision Framework
+
+### Visual Decision Flow
+
+```
+                        START: What's your primary need?
+                                     │
+                         ┌───────────┴───────────┐
+                         │                       │
+                    Batch campaigns          Real-time
+                    (daily/weekly)          (<5 min latency)
+                         │                       │
+                         ▼                       ▼
+               ┌─────────────────────┐  ┌────────────────────┐
+               │ Do you need AEP's   │  │ What % needs       │
+               │ Customer AI/        │  │ real-time?         │
+               │ Attribution AI?     │  │                    │
+               └─────────┬───────────┘  └────────┬───────────┘
+                  ┌──────┴──────┐         ┌──────┴──────┐
+                 NO            YES        <10%     >50%    10-50%
+                  │             │          │        │        │
+                  ▼             │          ▼        ▼        ▼
+         ┌───────────────┐     │  ┌──────────┐ ┌──────┐ ┌────────┐
+         │ OPTION 1:     │     │  │ OPTION 3:│ │ OPT 2│ │Cost vs │
+         │ FEDERATED     │     │  │ HYBRID   │ │ COMP │ │Simple? │
+         │               │     │  │          │ │ ATTR │ │        │
+         │ ✓ $247-701K   │     │  │ 99% Fed  │ │      │ └───┬────┘
+         │ ✓ 2-4 weeks   │     │  │ 1% RT    │ │ Full │  ┌──┴───┐
+         │ ✓ Zero lock-in│     │  │          │ │ RT   │  │      │
+         │ ✓ Data in GCP │     │  │ $286-693K│ │ $248K│  Cost   Simple
+         └───────────────┘     │  └──────────┘ └──────┘  │      │
+                               │                          ▼      ▼
+                               │                     ┌────────┬──────┐
+                               │                     │ OPT 3: │ OPT 2│
+                               │                     │ HYBRID │ COMP │
+                               │                     └────────┴──────┘
+                               ▼
+                    ┌──────────────────────┐
+                    │ OPTION 2 or 3:       │
+                    │ COMPUTED ATTRIBUTES  │
+                    │ or HYBRID            │
+                    │                      │
+                    │ (Full AEP features)  │
+                    └──────────────────────┘
+
+LEGEND:
+Option 1: Federated Audience Composition (PRIMARY RECOMMENDATION)
+Option 2: Computed Attributes Pattern
+Option 3: Hybrid Selective Pattern
+RT = Real-Time
+```
 
 ### Simple Decision Tree
 
