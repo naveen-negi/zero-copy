@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Option 2: Computed Attributes Pattern</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        #diagram {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        .subtitle {
+            font-size: 16px;
+            text-align: center;
+            margin-bottom: 30px;
+            color: #666;
+        }
+        .node rect {
+            stroke: #333;
+            stroke-width: 2px;
+        }
+        .node text {
+            font-size: 11px;
+            pointer-events: none;
+        }
+        .link {
+            fill: none;
+            stroke: #666;
+            stroke-width: 2px;
+            marker-end: url(#arrowhead);
+        }
+        .link-label {
+            font-size: 10px;
+            fill: #666;
+        }
+        .note {
+            font-size: 11px;
+            fill: #333;
+        }
+        .gcp { fill: #4285F4; }
+        .adobe { fill: #FF0000; }
+        .dest { fill: #34A853; }
+        .bq { fill: #FBBC04; }
+        .stream { fill: #0F9D58; }
+    </style>
+</head>
+<body>
+    <div class="title">Option 2: Computed Attributes Pattern</div>
+    <div class="subtitle">Real-Time Streaming with Minimal Profiles</div>
+    <svg id="diagram" width="1200" height="800"></svg>
+
+    <script>
+        const svg = d3.select("#diagram");
+        const width = 1200;
+        const height = 800;
+
+        // Define arrow marker
+        svg.append("defs").append("marker")
+            .attr("id", "arrowhead")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 8)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-5L10,0L0,5")
+            .attr("fill", "#666");
+
+        // Define nodes
+        const nodes = [
+            // GCP
+            { id: "bq", label: "BigQuery", sublabel: "Raw data\n2-10 TB", x: 50, y: 80, width: 140, height: 70, class: "bq" },
+            { id: "models", label: "Lead Scoring\nModels", sublabel: "ML models", x: 220, y: 80, width: 140, height: 70, class: "gcp" },
+            { id: "computed", label: "Computed\nAttributes", sublabel: "5-10 fields\n500 MB", x: 390, y: 80, width: 140, height: 70, class: "gcp" },
+            { id: "stream", label: "Streaming\nService", sublabel: "Cloud Function", x: 560, y: 80, width: 140, height: 70, class: "stream" },
+
+            // AEP
+            { id: "api", label: "Streaming\nIngestion API", sublabel: "500 MB/day", x: 200, y: 250, width: 140, height: 70, class: "adobe" },
+            { id: "profile", label: "Real-Time\nProfile", sublabel: "10M profiles", x: 380, y: 250, width: 140, height: 70, class: "adobe" },
+            { id: "seg", label: "Segmentation\nEngine", sublabel: "Real-time eval", x: 560, y: 250, width: 140, height: 70, class: "adobe" },
+
+            // Destinations
+            { id: "marketo", label: "Marketo", sublabel: "Real-Time", x: 250, y: 420, width: 120, height: 70, class: "dest" },
+            { id: "gads", label: "Google Ads", sublabel: "Real-Time", x: 420, y: 420, width: 120, height: 70, class: "dest" },
+            { id: "crm", label: "Sales CRM", sublabel: "Alerts", x: 590, y: 420, width: 120, height: 70, class: "dest" }
+        ];
+
+        // Define links
+        const links = [
+            { source: "bq", target: "models", label: "Daily scoring" },
+            { source: "models", target: "computed", label: "" },
+            { source: "computed", target: "stream", label: "" },
+            { source: "stream", target: "api", label: "HTTPS\nstreaming" },
+            { source: "api", target: "profile", label: "" },
+            { source: "profile", target: "seg", label: "" },
+            { source: "seg", target: "marketo", label: "Activate" },
+            { source: "seg", target: "gads", label: "Activate" },
+            { source: "seg", target: "crm", label: "Activate" }
+        ];
+
+        // Draw links
+        links.forEach(link => {
+            const source = nodes.find(n => n.id === link.source);
+            const target = nodes.find(n => n.id === link.target);
+
+            const startX = source.x + source.width / 2;
+            const startY = source.y + source.height;
+            const endX = target.x + target.width / 2;
+            const endY = target.y;
+
+            svg.append("path")
+                .attr("class", "link")
+                .attr("d", `M${startX},${startY} L${endX},${endY}`);
+
+            if (link.label) {
+                svg.append("text")
+                    .attr("class", "link-label")
+                    .attr("x", (startX + endX) / 2)
+                    .attr("y", (startY + endY) / 2 - 5)
+                    .attr("text-anchor", "middle")
+                    .selectAll("tspan")
+                    .data(link.label.split('\n'))
+                    .enter()
+                    .append("tspan")
+                    .attr("x", (startX + endX) / 2)
+                    .attr("dy", (d, i) => i * 11)
+                    .text(d => d);
+            }
+        });
+
+        // Draw nodes
+        const nodeGroups = svg.selectAll(".node")
+            .data(nodes)
+            .enter()
+            .append("g")
+            .attr("class", "node");
+
+        nodeGroups.append("rect")
+            .attr("x", d => d.x)
+            .attr("y", d => d.y)
+            .attr("width", d => d.width)
+            .attr("height", d => d.height)
+            .attr("rx", 5)
+            .attr("class", d => d.class);
+
+        nodeGroups.append("text")
+            .attr("x", d => d.x + d.width / 2)
+            .attr("y", d => d.y + 22)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("fill", "white")
+            .selectAll("tspan")
+            .data(d => d.label.split('\n'))
+            .enter()
+            .append("tspan")
+            .attr("x", d => {
+                const node = nodes.find(n => n.label.includes(d));
+                return node.x + node.width / 2;
+            })
+            .attr("dy", (d, i) => i * 12)
+            .text(d => d);
+
+        nodeGroups.append("text")
+            .attr("x", d => d.x + d.width / 2)
+            .attr("y", d => d.y + 48)
+            .attr("text-anchor", "middle")
+            .attr("font-size", "9px")
+            .attr("fill", "white")
+            .selectAll("tspan")
+            .data(d => d.sublabel.split('\n'))
+            .enter()
+            .append("tspan")
+            .attr("x", d => {
+                const node = nodes.find(n => n.sublabel.includes(d));
+                return node.x + node.width / 2;
+            })
+            .attr("dy", (d, i) => i * 10)
+            .text(d => d);
+
+        // Add package labels
+        svg.append("text")
+            .attr("x", 355)
+            .attr("y", 60)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("font-size", "14px")
+            .attr("fill", "#4285F4")
+            .text("Google Cloud Platform");
+
+        svg.append("text")
+            .attr("x", 420)
+            .attr("y", 230)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("font-size", "14px")
+            .attr("fill", "#FF0000")
+            .text("Adobe Experience Platform");
+
+        svg.append("text")
+            .attr("x", 435)
+            .attr("y", 400)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("font-size", "14px")
+            .attr("fill", "#34A853")
+            .text("Marketing Destinations");
+
+        // Benefits note
+        const benefits = [
+            "KEY BENEFITS:",
+            "• 85-95% data reduction (500 MB vs 50-100 GB/day)",
+            "• Real-time capability (2-10 min latency)",
+            "• Full AEP features (Customer AI, Identity Graph)",
+            "• $248K-$858K/year",
+            "",
+            "KEY TRADE-OFFS:",
+            "• Profiles stored in AEP (vendor lock-in)",
+            "• Higher cost vs Option 1",
+            "• Dual-system complexity",
+            "• Schema coupling with AEP XDM"
+        ];
+
+        const benefitsGroup = svg.append("g");
+        benefitsGroup.append("rect")
+            .attr("x", 50)
+            .attr("y", 550)
+            .attr("width", 700)
+            .attr("height", 200)
+            .attr("fill", "#FFFACD")
+            .attr("stroke", "#333")
+            .attr("stroke-width", 1)
+            .attr("rx", 5);
+
+        benefitsGroup.selectAll("text")
+            .data(benefits)
+            .enter()
+            .append("text")
+            .attr("x", 60)
+            .attr("y", (d, i) => 570 + i * 16)
+            .attr("class", "note")
+            .attr("font-weight", (d, i) => (i === 0 || i === 6) ? "bold" : "normal")
+            .text(d => d);
+    </script>
+</body>
+</html>

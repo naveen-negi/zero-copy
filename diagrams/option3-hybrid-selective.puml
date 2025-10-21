@@ -1,130 +1,48 @@
-@startuml option3-hybrid-selective
-!define GCP_COLOR #4285F4
-!define ADOBE_COLOR #FF0000
-!define DEST_COLOR #34A853
+@startuml
+skinparam defaultTextAlignment center
+skinparam componentStyle rectangle
 
-skinparam rectangle {
-    BackgroundColor<<gcp>> GCP_COLOR
-    BackgroundColor<<adobe>> ADOBE_COLOR
-    BackgroundColor<<dest>> DEST_COLOR
-    BackgroundColor<<batch>> #4285F4
-    BackgroundColor<<realtime>> #EA4335
-    BorderColor Black
-    FontColor White
+title Option 3: Hybrid Selective Pattern\n99% Federated + 1% Real-Time
+
+package "Google Cloud Platform" #4285F4 {
+  [BigQuery\nData Warehouse\n\n99% batch data\n1% real-time subset] as BQ #FBBC04
 }
 
-skinparam database {
-    BackgroundColor #FBBC04
-    BorderColor Black
+package "Adobe Experience Platform - PATH 1: Batch" #4285F4 {
+  [Federated Audience\nComposition] as FAC1
+  [External Audiences\n99% volume] as EA1
 }
 
-title Option 3: Hybrid Selective Pattern\nBest of Both Worlds - 99% Federated + 1% Real-Time
-
-package "Google Cloud Platform (GCP)" <<gcp>> {
-    database "BigQuery Data Warehouse" as bq {
-        rectangle "Batch Data\n(99%)" as batch {
-            -- 9.9M profiles
-            -- Lead classifications
-            -- Campaign audiences
-        }
-
-        rectangle "Real-Time Subset\n(1%)" as realtime {
-            -- 100K profiles
-            -- High-value leads
-            -- Urgent actions needed
-        }
-    }
+package "Adobe Experience Platform - PATH 2: Real-Time" #EA4335 {
+  [Streaming API] as API2
+  [Profile Store\n1% volume] as PROF2
 }
 
-package "Adobe Experience Platform" <<adobe>> {
-    package "PATH 1: Federated (Batch)" <<batch>> {
-        rectangle "Federated Audience\nComposition" as fac {
-            -- Query BigQuery daily/weekly
-            -- 99% of volume
-        }
-
-        rectangle "External Audiences" as ext_aud {
-            -- Hot leads (500K IDs)
-            -- Warm leads (1.5M IDs)
-            -- Campaign audiences
-            ==
-            ✓ Zero vendor lock-in
-            ✓ Cost: $40K-$80K/yr
-            ✓ Daily refresh
-        }
-    }
-
-    package "PATH 2: Streaming (Real-Time)" <<realtime>> {
-        rectangle "Streaming\nIngestion API" as stream_api
-
-        rectangle "Profile Store\n(1% of volume)" as profile_store {
-            -- 100K profiles
-            -- Real-time scores
-            -- Urgent flags
-            ==
-            • Enables Customer AI
-            • Fast lookups
-            • Cost: $10K-$30K/yr
-        }
-    }
+package "Destinations" #34A853 {
+  [Batch Campaigns\nMarketo, Email] as BATCH
+  [Real-Time Triggers\nGoogle Ads] as RT
+  [Sales CRM\nAlerts] as CRM
 }
 
-package "Marketing Destinations" <<dest>> {
-    rectangle "Batch Campaigns" as batch_dest {
-        -- Marketo
-        -- Email nurture
-        -- Weekly cadence
-    }
+BQ --> FAC1 : Query daily\n(99% of data)
+FAC1 --> EA1
+EA1 --> BATCH
 
-    rectangle "Real-Time Triggers" as rt_dest {
-        -- Google Ads (RT)
-        -- Chatbot triggers
-        -- <5 min latency
-    }
-
-    rectangle "Sales CRM" as crm_dest {
-        -- Alerts
-        -- Lead routing
-        -- Immediate
-    }
-}
-
-batch -down-> fac : Query in-place\n(daily/weekly)
-fac -down-> ext_aud
-ext_aud -down-> batch_dest : Activate
-
-realtime -down-> stream_api : Stream attributes\n(2-10 min latency)
-stream_api -down-> profile_store
-profile_store -down-> rt_dest : Activate
-profile_store -down-> crm_dest
-
-note right of batch
-    **99% Batch Use Cases:**
-    • Daily nurture campaigns
-    • Weekly outreach
-    • Suppression lists
-    • Lookalike modeling
-end note
-
-note right of realtime
-    **1% Real-Time Use Cases:**
-    • Sales alerts (score jump)
-    • Urgent lead routing
-    • Time-sensitive offers
-    • High-value triggers
-end note
+BQ --> API2 : Stream attributes\n(1% of data)
+API2 --> PROF2
+PROF2 --> RT
+PROF2 --> CRM
 
 note bottom
-    **HYBRID BENEFITS:**
-    ✓ Best economics: $286K-$693K/year (20-30% less than full real-time)
-    ✓ 95-99% data reduction (99% via federated, 1% via streaming)
-    ✓ Real-time where it matters, batch where it's sufficient
-    ✓ 99% vendor independence (bulk logic in BigQuery)
-    ✓ Incremental adoption path (start federated, add real-time)
+**BENEFITS:**
+• Best economics $286K-$693K/year
+• 95-99% data reduction
+• Real-time where needed
+• 99% vendor independence
 
-    **USE CASE SPLIT:**
-    • 99% Batch: Daily nurture, weekly campaigns, suppression lists
-    • 1% Real-Time: Sales alerts, urgent lead routing, time-sensitive offers
+**USE CASES:**
+• 99% Batch campaigns
+• 1% Real-time alerts
 end note
 
 @enduml

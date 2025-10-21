@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>AEP Zero-Copy Architecture Diagrams</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 40px;
+        }
+        .diagram-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .diagram-card {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            background-color: #fafafa;
+        }
+        .diagram-card:hover {
+            border-color: #4285F4;
+            box-shadow: 0 4px 12px rgba(66, 133, 244, 0.2);
+            transform: translateY(-2px);
+        }
+        .diagram-card h2 {
+            color: #333;
+            margin: 0 0 10px 0;
+            font-size: 20px;
+        }
+        .diagram-card p {
+            color: #666;
+            margin: 0 0 15px 0;
+            font-size: 14px;
+        }
+        .diagram-card .label {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .recommended {
+            background-color: #4285F4;
+            color: white;
+        }
+        .realtime {
+            background-color: #EA4335;
+            color: white;
+        }
+        .hybrid {
+            background-color: #FBBC04;
+            color: white;
+        }
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+        .info {
+            background-color: #E8F0FE;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 30px;
+            border-left: 4px solid #4285F4;
+        }
+        .info h3 {
+            margin-top: 0;
+            color: #1967D2;
+        }
+        .info ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .info li {
+            margin: 8px 0;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AEP Zero-Copy Architecture Diagrams</h1>
+        <p class="subtitle">Interactive D3.js visualizations of architecture options</p>
+
+        <div class="diagram-grid">
+            <a href="option1-federated.html" target="_blank">
+                <div class="diagram-card">
+                    <h2>Option 1</h2>
+                    <p><strong>Federated Audience Composition</strong></p>
+                    <p>TRUE zero-copy architecture. Query BigQuery directly from AEP, transfer only audience IDs.</p>
+                    <div class="label recommended">RECOMMENDED</div>
+                    <p style="margin-top: 10px; font-size: 12px;">
+                        💰 $247K-$701K/year<br>
+                        📊 99.96% data reduction<br>
+                        ⏱️ 2-4 weeks setup
+                    </p>
+                </div>
+            </a>
+
+            <a href="option2-computed.html" target="_blank">
+                <div class="diagram-card">
+                    <h2>Option 2</h2>
+                    <p><strong>Computed Attributes Pattern</strong></p>
+                    <p>Stream only derived scores to AEP. Full real-time capability with minimal data transfer.</p>
+                    <div class="label realtime">REAL-TIME</div>
+                    <p style="margin-top: 10px; font-size: 12px;">
+                        💰 $248K-$858K/year<br>
+                        📊 85-95% data reduction<br>
+                        ⏱️ 4-8 weeks setup
+                    </p>
+                </div>
+            </a>
+
+            <a href="option3-hybrid.html" target="_blank">
+                <div class="diagram-card">
+                    <h2>Option 3</h2>
+                    <p><strong>Hybrid Selective Pattern</strong></p>
+                    <p>99% Federated (batch) + 1% Real-Time Streaming. Best of both worlds.</p>
+                    <div class="label hybrid">HYBRID</div>
+                    <p style="margin-top: 10px; font-size: 12px;">
+                        💰 $286K-$693K/year<br>
+                        📊 95-99% data reduction<br>
+                        ⏱️ 6-12 weeks setup
+                    </p>
+                </div>
+            </a>
+        </div>
+
+        <div class="info">
+            <h3>📖 How to Use</h3>
+            <ul>
+                <li><strong>Click any card above</strong> to open the interactive diagram in a new tab</li>
+                <li>Diagrams are fully interactive and render using D3.js</li>
+                <li>No internet connection required after initial load (D3.js loads from CDN)</li>
+                <li>Works in all modern browsers (Chrome, Firefox, Safari, Edge)</li>
+            </ul>
+
+            <h3>📁 Files in this Directory</h3>
+            <ul>
+                <li><code>index.html</code> - This navigation page</li>
+                <li><code>option1-federated.html</code> - Federated Audience Composition diagram</li>
+                <li><code>option2-computed.html</code> - Computed Attributes Pattern diagram</li>
+                <li><code>option3-hybrid.html</code> - Hybrid Selective Pattern diagram</li>
+                <li><code>*.puml</code> - PlantUML source files (backup)</li>
+            </ul>
+
+            <h3>🔗 Related Documentation</h3>
+            <ul>
+                <li><a href="../aep-zero-copy-executive-summary.md" style="color: #1967D2;">Executive Summary</a> - Strategic decision guide (with corrections)</li>
+                <li><a href="../aep-zero-copy-architecture-options.md" style="color: #1967D2;">Technical Details</a> - Comprehensive implementation guide</li>
+                <li><a href="../aep-concepts-faq.md" style="color: #1967D2;">AEP Concepts FAQ</a> - Business-friendly explanations</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

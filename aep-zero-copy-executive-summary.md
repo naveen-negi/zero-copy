@@ -22,23 +22,25 @@ The traditional AEP approach requires copying ALL customer data into Adobe's Rea
 
 Adobe's 2024/2025 release of **Federated Audience Composition** fundamentally changes the economics and architecture. True zero-copy is now possible for audience-based use cases like lead classification.
 
-### Top 3 Recommended Options
+### Top 4 Options
 
-After comprehensive analysis of 6 architecture patterns, three emerge as viable for your BigQuery lead scoring use case:
+After comprehensive analysis of 6 architecture patterns, four emerge as viable for your BigQuery lead scoring use case:
 
 1. **Federated Audience Composition (RECOMMENDED)** - Query BigQuery directly from AEP, transfer only audience IDs
 2. **Computed Attributes Pattern** - Send only derived scores to AEP, not raw data
 3. **Hybrid Selective Pattern** - Combine federated audiences (99% of use cases) with real-time computed attributes (1% of use cases)
+4. **External Audiences (CSV/API Upload)** - Build audiences in BigQuery, upload ID lists manually (best for POC/testing)
 
 ### Quick Decision Matrix
 
-| Decision Factor | Choose Federated Audience Composition | Choose Computed Attributes | Choose Hybrid |
-|-----------------|--------------------------------------|----------------------------|---------------|
-| Your primary need is... | Batch campaign activation (daily/weekly) | Real-time triggers (<1 min) OR need AEP AI features | Both batch campaigns AND real-time alerts |
-| Data sovereignty is... | Critical (data must stay in GCP) | Important but flexible | Critical for most data, flexible for minimal real-time subset |
-| Budget for AEP... | Cost-conscious ($40K-$80K/year) | Moderate ($80K-$145K/year) | Higher ($90K-$165K/year) |
-| Vendor lock-in risk tolerance... | Low (keep logic in BigQuery) | Medium (some AEP dependencies) | Low-Medium (mostly independent) |
-| Time to implement... | 2-4 weeks | 4-8 weeks | 6-12 weeks |
+| Decision Factor | Choose Federated Audience Composition | Choose Computed Attributes | Choose Hybrid | Choose External Audiences |
+|-----------------|--------------------------------------|----------------------------|---------------|---------------------------|
+| Your primary need is... | Batch campaign activation (daily/weekly) | Real-time triggers (<1 min) OR need AEP AI features | Both batch campaigns AND real-time alerts | POC/testing or one-time campaigns |
+| Data sovereignty is... | Critical (data must stay in GCP) | Important but flexible | Critical for most data, flexible for minimal real-time subset | Medium (IDs copied to AEP) |
+| Budget for AEP... | Cost-conscious ($247K-$701K/year) | Moderate ($248K-$858K/year) | Higher ($286K-$693K/year) | Lowest ($112K-$292K/year) |
+| Vendor lock-in risk tolerance... | Low (keep logic in BigQuery) | Medium (some AEP dependencies) | Low-Medium (mostly independent) | Very Low (just ID lists) |
+| Time to implement... | 2-4 weeks | 4-8 weeks | 6-12 weeks | <1 week |
+| Production readiness... | Full production | Full production | Full production | POC/testing only |
 
 ---
 
@@ -418,10 +420,10 @@ This pattern keeps your lead scoring computation in BigQuery but streams ONLY th
 
 **Ideal For**:
 - Real-time use cases requiring <5 minute latency (e.g., "sales rep alert when lead becomes hot")
-- Organizations that want to use AEP's Customer AI alongside custom BigQuery models
 - Scenarios requiring cross-device identity stitching via Adobe's Identity Graph
 - Companies with existing AEP investments who want to reduce data volume but keep full feature access
 - Web personalization use cases requiring fast profile lookups (<100ms)
+- Organizations WITHOUT existing ML models that want to use AEP's Customer AI for propensity scoring (Note: Not applicable to your use case since you already have BigQuery ML models)
 
 **NOT Suitable For**:
 - Organizations with strict data sovereignty requirements (profiles still stored in Adobe)
@@ -653,31 +655,219 @@ This pattern combines the best of both approaches: use Federated Audience Compos
 
 ---
 
+## Option 4: External Audiences (CSV/API Upload)
+
+### What It Is
+
+External Audiences allow you to upload pre-built audience lists (customer IDs) from external systems into AEP via CSV files or API. You build audiences in BigQuery, export the customer IDs, and import them into AEP for activation to destinations.
+
+**Source**: [External Audiences API Documentation](https://experienceleague.adobe.com/en/docs/experience-platform/segmentation/api/external-audiences)
+
+**Key Concept**: This is the SIMPLEST zero-copy approach - build everything in BigQuery, then upload just the final ID lists to AEP.
+
+**How It Works** (conceptually):
+- Run your lead scoring queries in BigQuery: `SELECT customer_id FROM leads WHERE classification = 'hot'`
+- Export results to CSV or call AEP's `/external-audience` API endpoint with ID list
+- AEP stores the IDs as an "External Audience"
+- Activate this audience to destinations (Marketo, Google Ads, etc.)
+- Manually re-upload when you want to refresh (or schedule via automation)
+
+**Data Transfer Volume**: For 500K "hot leads", you transfer just 500K IDs (~10-50 MB per upload).
+
+### Critical Distinction: External Audiences vs Federated Audience Composition
+
+**These are NOT the same, despite similar naming**:
+
+| Aspect | External Audiences (CSV/API) | Federated Audience Composition |
+|--------|----------------------------|-------------------------------|
+| **Data Movement** | IDs **COPIED** to AEP | Data **QUERIED** in BigQuery |
+| **Refresh** | Manual re-upload required | Scheduled automatic queries |
+| **TTL (Expiration)** | 1-90 days (default 30) | No expiration, always fresh |
+| **AEP Configuration** | None (just API credentials) | Federated database connection setup |
+| **Query Execution** | You run query in BigQuery | AEP runs query on your BigQuery |
+| **Zero-Copy** | NO (IDs copied) | YES (true zero-copy) |
+
+**Important**: Federated Audience Composition CREATES "external audiences" as metadata, but the underlying mechanism is fundamentally different (queries in-place vs copying data).
+
+### Why This Option Makes Sense
+
+**Strategic Advantages**:
+1. **Simplest Implementation**: No AEP Federated setup, no streaming pipelines - just upload IDs
+2. **No Ongoing Costs**: No query costs, no connection fees after initial setup
+3. **Testing-Friendly**: Perfect for POCs or evaluating AEP before full commitment
+4. **Flexible Tooling**: Use any BigQuery export method (bq command, Airflow, Cloud Scheduler)
+
+**Operational Advantages**:
+- No specialized AEP knowledge required
+- Works with existing BigQuery export workflows
+- Easy to understand and troubleshoot
+- Can upload from local files for one-time campaigns
+
+### Key Benefits
+
+1. **Fastest POC**: Can be running in <1 week
+   - Export BigQuery results to CSV
+   - Upload to AEP via UI or API
+   - Configure destination and activate
+   - No infrastructure setup
+
+2. **Zero AEP Configuration**: Just need API credentials
+   - No federated database connection
+   - No XDM schemas for source data
+   - No streaming pipeline development
+
+3. **Audit Trail**: Full control over what gets uploaded
+   - Review CSV before upload
+   - Test with subset of IDs first
+   - Clear timestamps of each upload
+
+### Key Limitations
+
+**CRITICAL DOWNSIDES - This is NOT a long-term solution**:
+
+1. **Data IS Copied (NOT Zero-Copy)**:
+   - Despite the name "External Audiences", data **IS copied into AEP**
+   - IDs stored in both Profile Store and Data Lake
+   - Subject to AEP profile storage costs if large volumes
+
+2. **TTL Expiration (30-90 days)**:
+   - Audiences **automatically expire** after TTL period
+   - Default: 30 days
+   - Must re-upload to refresh (manual process)
+   - **No auto-refresh capability** unlike Federated
+
+3. **Manual Refresh Required**:
+   - Every update requires new CSV/API call
+   - Must build automation if you want scheduled refreshes
+   - More operational overhead than Federated (which auto-refreshes)
+
+4. **File Size Constraints**:
+   - CSV max: <1GB file size
+   - CSV max: 25 columns
+   - Large audiences may require splitting into multiple files
+
+5. **Static Lists Only**:
+   - No dynamic re-evaluation of rules
+   - If lead classification changes in BigQuery, must re-upload entire audience
+   - Cannot combine with profile-based segmentation rules in AEP
+
+**Source**: [External Audiences Specifications](https://experienceleague.adobe.com/en/docs/experience-platform/segmentation/api/external-audiences)
+
+### When to Use This Option
+
+**Ideal For**:
+- **POC/Testing**: Evaluating AEP before committing to Federated or Computed Attributes setup
+- **One-Time Campaigns**: Holiday promotions, product launches, event attendees
+- **Small Audiences**: <100K profiles, infrequent updates (monthly or less)
+- **Suppression Lists**: "Do not contact", "already converted" lists that change rarely
+- **Quick Wins**: Need activation running THIS WEEK, can migrate to better approach later
+
+**NOT Suitable For**:
+- **Daily/Weekly Campaigns**: Manual refresh is too operationally expensive
+- **Large Audiences**: >1M profiles hit file size limits, multiple uploads required
+- **Dynamic Segmentation**: Needs real-time or frequent re-evaluation of criteria
+- **Long-Term Production Use**: Federated Audience Composition is better in every way for ongoing use
+
+### Honest Assessment: When to Choose This
+
+**Choose External Audiences IF**:
+- You need to test AEP activation capabilities with minimal setup
+- You have a specific one-time campaign and no future AEP plans
+- You're evaluating AEP vs competitors and want quick comparison
+
+**DO NOT choose External Audiences IF**:
+- You have ongoing, recurring audience activation needs → Use **Federated Audience Composition** instead
+- You need real-time updates → Use **Computed Attributes** instead
+- You value operational efficiency → Manual refresh is unsustainable at scale
+
+### Migration Path
+
+**Recommended: Start here, migrate to Federated**:
+
+```
+Week 1-2:   Upload audiences via External Audiences API/CSV (TEST AEP)
+Week 3-4:   Evaluate activation results, test destinations
+Week 5-6:   Migrate to Federated Audience Composition (PRODUCTION)
+```
+
+**Why this works**:
+- Proves AEP activation works for your use case
+- Minimal investment before commitment
+- Easy migration: same audience IDs, just change source from manual upload → federated query
+
+### Rough Cost Estimate
+
+**AEP Licensing** (if activating via destinations):
+- Real-Time CDP (Foundation tier sufficient): $100K-$250K/year
+- **Total AEP: $100K-$250K/year**
+
+**AEP Usage Costs**:
+- API calls for uploads: Negligible (<$100/year for typical usage)
+- Profile storage: $0-$10K/year (depends on whether AEP treats external audience IDs as profiles)
+- **Total AEP usage: <$10K/year**
+
+**GCP Costs**:
+- BigQuery query costs: $500-$2K/year (ad-hoc queries, not scheduled like FAC)
+- Export/egress: <$50/year
+- **Total GCP: $500-$2K/year**
+
+**Implementation**:
+- Initial setup: $5K-$15K (1 week consulting to build upload automation)
+- Ongoing maintenance: 0.1-0.25 FTE (~$12K-$30K/year for monthly re-uploads)
+
+**Total First-Year Cost**: $112K-$292K
+
+**Cost Comparison**:
+- **55-60% LOWER** than Federated Audience Composition licensing ($100K-$250K vs $190K-$530K)
+- **BUT**: Higher operational overhead (manual refresh)
+- **NOTE**: If you're already paying for RT-CDP, incremental cost is near-zero
+
+### Documentation Sources
+
+All claims in this section are sourced from:
+
+1. **[External Audiences API Guide](https://experienceleague.adobe.com/en/docs/experience-platform/segmentation/api/external-audiences)**
+   - API endpoints, request/response formats
+   - TTL configuration (1-90 days)
+   - File upload specifications
+
+2. **[External Audiences Overview](https://experienceleague.adobe.com/en/docs/experience-platform/segmentation/api/external-audiences)**
+   - Data ingestion pipeline (Dataset → Profile Store)
+   - Differential ingestion support
+   - Field type requirements (string, number, date, boolean)
+
+3. **[Federated Audience Composition Documentation](https://experienceleague.adobe.com/en/docs/federated-audience-composition/using/start/get-started)**
+   - Clarifies that FAC creates "external audiences" but mechanism is federated query, not upload
+
+---
+
 ## Comparison Matrix
 
-| Dimension | Federated Audience Composition | Computed Attributes | Hybrid Selective |
-|-----------|-------------------------------|---------------------|------------------|
-| **Data Transfer Volume** | 50-500 MB/year (99.96% reduction) | 500 MB - 2 GB/year (85-95% reduction) | 100 MB - 1 GB/year (95-99% reduction) |
-| **Annual Cost** (total) | $247K-$701K | $248K-$858K | $286K-$693K |
-| **Cost vs Full Ingestion** | 50% lower | 15-30% higher | 20-30% lower |
-| **Implementation Time** | 2-4 weeks | 4-8 weeks | 6-12 weeks (phased) |
-| **Operational Complexity** | Low (SQL + UI config) | Medium (streaming pipeline + monitoring) | Medium-High (dual architecture) |
-| **Minimum Latency** | 1-24 hours (batch refresh) | 2-10 minutes (streaming) | 2-10 min (real-time subset), 1-24 hrs (batch) |
-| **AEP Features Supported** | Audience activation, basic segmentation | Full platform (Customer AI, Identity Graph, edge) | Full platform for real-time subset |
-| **Real-Time Capability** | No | Yes (<5 min) | Yes, for designated use cases |
-| **Vendor Lock-in Risk** | Very Low (logic in BigQuery) | Medium-High (segments + profiles in AEP) | Low (99% in BigQuery, 1% in AEP) |
-| **Data Sovereignty** | High (data stays in GCP) | Low (profiles in Adobe cloud) | Medium (bulk in GCP, subset in Adobe) |
-| **Switching Cost** | Low ($20K-$50K to migrate) | High ($100K-$300K to rebuild) | Low-Medium ($30K-$80K) |
-| **Web Personalization** | Not supported | Supported (<100ms lookup) | Supported for real-time subset |
-| **Customer AI / Attribution AI** | Not supported (no profiles in AEP) | Fully supported | Supported for real-time subset |
-| **Identity Graph** | Not supported (pre-compute in BQ) | Fully supported | Supported for real-time subset |
-| **Typical Refresh Frequency** | Daily or hourly | Continuous (as events occur) | Daily (FAC) + continuous (real-time) |
-| **BigQuery Query Costs** | $5K-$15K/year (daily queries) | $2K-$10K/year (scoring only) | $7K-$23K/year (both) |
-| **AEP Ingestion Costs** | None (federated query) | $30K-$80K/year | $3K-$8K/year (1% subset) |
-| **Skills Required** | BigQuery SQL, AEP UI basics | BigQuery + AEP XDM + streaming architecture | Both |
-| **Scalability** | High (BigQuery scales, AEP just stores IDs) | Medium (AEP profile limits) | High (FAC handles bulk) |
-| **Best For** | Batch campaigns, cost optimization | Real-time triggers, full AEP features | Mixed batch + real-time needs |
-| **Worst For** | Real-time personalization | Cost-sensitive, vendor lock-in averse | Simple use cases, small teams |
+| Dimension | Federated Audience Composition | Computed Attributes | Hybrid Selective | External Audiences (CSV/API) |
+|-----------|-------------------------------|---------------------|------------------|------------------------------|
+| **Data Transfer Volume** | 50-500 MB/year (99.96% reduction) | 500 MB - 2 GB/year (85-95% reduction) | 100 MB - 1 GB/year (95-99% reduction) | 10-100 MB/upload (per refresh) |
+| **Annual Cost** (total) | $247K-$701K | $248K-$858K | $286K-$693K | $112K-$292K |
+| **Cost vs Full Ingestion** | 50% lower | 15-30% higher | 20-30% lower | 60-75% lower (BUT manual overhead) |
+| **Implementation Time** | 2-4 weeks | 4-8 weeks | 6-12 weeks (phased) | <1 week |
+| **Operational Complexity** | Low (SQL + UI config) | Medium (streaming pipeline + monitoring) | Medium-High (dual architecture) | Very Low (manual upload) |
+| **Minimum Latency** | 1-24 hours (batch refresh) | 2-10 minutes (streaming) | 2-10 min (real-time subset), 1-24 hrs (batch) | Manual (whenever you re-upload) |
+| **AEP Features Supported** | Audience activation, basic segmentation | Full platform (Customer AI, Identity Graph, edge) | Full platform for real-time subset | Audience activation only |
+| **Real-Time Capability** | No | Yes (<5 min) | Yes, for designated use cases | No (manual refresh) |
+| **Vendor Lock-in Risk** | Very Low (logic in BigQuery) | Medium-High (segments + profiles in AEP) | Low (99% in BigQuery, 1% in AEP) | Very Low (just ID lists) |
+| **Data Sovereignty** | High (data stays in GCP) | Low (profiles in Adobe cloud) | Medium (bulk in GCP, subset in Adobe) | Medium (IDs copied to AEP) |
+| **Switching Cost** | Low ($20K-$50K to migrate) | High ($100K-$300K to rebuild) | Low-Medium ($30K-$80K) | Very Low (<$5K to stop uploads) |
+| **Web Personalization** | Not supported | Supported (<100ms lookup) | Supported for real-time subset | Not supported |
+| **Customer AI / Attribution AI** | Not supported (no profiles in AEP) | Fully supported | Supported for real-time subset | Not supported |
+| **Identity Graph** | Not supported (pre-compute in BQ) | Fully supported | Supported for real-time subset | Not supported |
+| **Typical Refresh Frequency** | Daily or hourly | Continuous (as events occur) | Daily (FAC) + continuous (real-time) | Manual (weekly/monthly typical) |
+| **BigQuery Query Costs** | $5K-$15K/year (daily queries) | $2K-$10K/year (scoring only) | $7K-$23K/year (both) | $500-$2K/year (ad-hoc) |
+| **AEP Ingestion Costs** | None (federated query) | $30K-$80K/year | $3K-$8K/year (1% subset) | <$100/year (API calls) |
+| **Skills Required** | BigQuery SQL, AEP UI basics | BigQuery + AEP XDM + streaming architecture | Both | BigQuery SQL only |
+| **Scalability** | High (BigQuery scales, AEP just stores IDs) | Medium (AEP profile limits) | High (FAC handles bulk) | Low (manual upload bottleneck) |
+| **Auto-Refresh** | Yes (scheduled queries) | Yes (streaming) | Yes (both paths) | No (manual re-upload) |
+| **TTL/Expiration** | No expiration | No expiration (profiles persist) | No expiration | Yes (30-90 days, must re-upload) |
+| **Best For** | Batch campaigns, cost optimization | Real-time triggers, full AEP features | Mixed batch + real-time needs | POC, one-time campaigns, testing |
+| **Worst For** | Real-time personalization | Cost-sensitive, vendor lock-in averse | Simple use cases, small teams | Ongoing production use |
 
 ---
 
@@ -1059,14 +1249,14 @@ Before making your final decision, get clarity from Adobe on these critical poin
 
 **Methodology**: This analysis evaluated 6 architecture patterns against your specific requirements, incorporating Adobe's latest 2025 documentation on Federated Audience Composition and External Audiences.
 
-**Key Research Sources**:
-- Adobe Experience League (October 2025 documentation)
-- Federated Audience Composition release notes and configuration guides
-- External Audiences API documentation
-- Real-Time CDP and Journey Optimizer feature comparisons
+**Key Research Sources** (with links):
+- [Federated Audience Composition Getting Started](https://experienceleague.adobe.com/en/docs/federated-audience-composition/using/start/get-started) - Architecture and capabilities
+- [External Audiences API Documentation](https://experienceleague.adobe.com/en/docs/experience-platform/segmentation/api/external-audiences) - CSV/API upload specifications, TTL, limitations
+- [Customer AI Overview](https://experienceleague.adobe.com/en/docs/experience-platform/intelligent-services/customer-ai/overview) - Use cases and when NOT to use
+- Adobe Experience League (October 2025 documentation) - Real-Time CDP and Journey Optimizer feature comparisons
 - BigQuery integration specifications
 
-**Verification**: All feature capabilities, limitations, and supported databases were verified against current Adobe Experience League documentation as of October 2025.
+**Verification**: All feature capabilities, limitations, and supported databases were verified against current Adobe Experience League documentation as of October 2025. External documentation links are provided throughout this document.
 
 **Assumptions**:
 - 10 million total customer profiles

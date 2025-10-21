@@ -34,39 +34,71 @@ This directory contains PlantUML diagrams for the three architecture options and
      - Customer AI/Attribution AI requirements
      - Cost vs simplicity preferences
 
-## How to View/Render Diagrams
+## How to View Diagrams
 
-### Option 1: Online PlantUML Server
+### ⭐ Recommended: D3.js Interactive Diagrams (EASIEST)
+
+**Open the interactive diagrams in your browser:**
+```bash
+open d3-diagrams/index.html
+```
+
+Or navigate to `diagrams/d3-diagrams/` and double-click `index.html`.
+
+**Features:**
+- ✅ No installation needed
+- ✅ Interactive SVG graphics
+- ✅ Works in any modern browser
+- ✅ Professional quality
+
+### Alternative: PlantUML (Backup)
+
+#### Option 1: Online PlantUML Server
 Visit: http://www.plantuml.com/plantuml/uml/
 
 Paste the contents of any `.puml` file to render it online.
 
-### Option 2: VS Code Extension
+#### Option 2: VS Code Extension
 1. Install "PlantUML" extension in VS Code
 2. Open any `.puml` file
 3. Press `Alt+D` (or `Cmd+D` on Mac) to preview
 
-### Option 3: Command Line
+#### Option 3: Command Line
 ```bash
 # Install PlantUML (requires Java)
 brew install plantuml  # macOS
 # or download from: https://plantuml.com/download
 
 # Render diagrams to PNG
-plantuml diagrams/*.puml
+plantuml *.puml
 
 # Render to SVG (scalable)
-plantuml -tsvg diagrams/*.puml
+plantuml -tsvg *.puml
 ```
 
-### Option 4: IntelliJ IDEA / WebStorm
+#### Option 4: IntelliJ IDEA / WebStorm
 1. Install "PlantUML integration" plugin
 2. Open any `.puml` file
 3. Diagrams render automatically in the editor
 
-## Generated Images
+## Directory Structure
 
-After rendering, the following files will be created:
+```
+diagrams/
+├── d3-diagrams/              # ⭐ Interactive D3.js diagrams (RECOMMENDED)
+│   ├── index.html           # Navigation page (START HERE)
+│   ├── option1-federated.html
+│   ├── option2-computed.html
+│   ├── option3-hybrid.html
+│   └── README.md
+├── *.puml                    # PlantUML source files (backup)
+├── test-diagrams.sh          # Validation script
+└── README.md                 # This file
+```
+
+## Generated Images (PlantUML)
+
+After rendering PlantUML files, the following will be created:
 - `option1-federated-audience-composition.png` (or .svg)
 - `option2-computed-attributes.png` (or .svg)
 - `option3-hybrid-selective.png` (or .svg)

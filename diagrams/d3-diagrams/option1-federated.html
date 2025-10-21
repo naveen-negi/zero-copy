@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Option 1: Federated Audience Composition</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        #diagram {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        .subtitle {
+            font-size: 16px;
+            text-align: center;
+            margin-bottom: 30px;
+            color: #666;
+        }
+        .node rect {
+            stroke: #333;
+            stroke-width: 2px;
+        }
+        .node text {
+            font-size: 12px;
+            pointer-events: none;
+        }
+        .link {
+            fill: none;
+            stroke: #666;
+            stroke-width: 2px;
+            marker-end: url(#arrowhead);
+        }
+        .link-label {
+            font-size: 11px;
+            fill: #666;
+        }
+        .note {
+            font-size: 11px;
+            fill: #333;
+        }
+        .gcp { fill: #4285F4; }
+        .adobe { fill: #FF0000; }
+        .dest { fill: #34A853; }
+        .bq { fill: #FBBC04; }
+    </style>
+</head>
+<body>
+    <div class="title">Option 1: Federated Audience Composition (RECOMMENDED)</div>
+    <div class="subtitle">TRUE Zero-Copy Architecture</div>
+    <svg id="diagram" width="1200" height="800"></svg>
+
+    <script>
+        const svg = d3.select("#diagram");
+        const width = 1200;
+        const height = 800;
+
+        // Define arrow marker
+        svg.append("defs").append("marker")
+            .attr("id", "arrowhead")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 8)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-5L10,0L0,5")
+            .attr("fill", "#666");
+
+        // Define nodes
+        const nodes = [
+            // GCP
+            { id: "bq", label: "BigQuery\nData Warehouse", sublabel: "10M profiles\n2-10 TB data", x: 200, y: 150, width: 180, height: 100, class: "bq" },
+
+            // AEP
+            { id: "fac", label: "Federated Audience\nComposition", sublabel: "Query BigQuery in-place\nNo data copied", x: 200, y: 350, width: 180, height: 100, class: "adobe" },
+            { id: "ea", label: "External Audiences", sublabel: "Customer IDs only\n500K-2M IDs\n10-50 MB", x: 200, y: 520, width: 180, height: 100, class: "adobe" },
+
+            // Destinations
+            { id: "marketo", label: "Marketo", sublabel: "Campaigns", x: 500, y: 450, width: 120, height: 70, class: "dest" },
+            { id: "gads", label: "Google Ads", sublabel: "Targeting", x: 670, y: 450, width: 120, height: 70, class: "dest" },
+            { id: "meta", label: "Meta Ads", sublabel: "Audiences", x: 840, y: 450, width: 120, height: 70, class: "dest" }
+        ];
+
+        // Define links
+        const links = [
+            { source: "bq", target: "fac", label: "Query in-place\n(federated SQL)" },
+            { source: "fac", target: "ea", label: "Transfer IDs only\n(10-50 MB)" },
+            { source: "ea", target: "marketo", label: "Activate" },
+            { source: "ea", target: "gads", label: "Activate" },
+            { source: "ea", target: "meta", label: "Activate" }
+        ];
+
+        // Draw links
+        links.forEach(link => {
+            const source = nodes.find(n => n.id === link.source);
+            const target = nodes.find(n => n.id === link.target);
+
+            const startX = source.x + source.width / 2;
+            const startY = source.y + source.height;
+            const endX = target.x + target.width / 2;
+            const endY = target.y;
+
+            // Draw line
+            svg.append("path")
+                .attr("class", "link")
+                .attr("d", `M${startX},${startY} L${endX},${endY}`);
+
+            // Draw label
+            svg.append("text")
+                .attr("class", "link-label")
+                .attr("x", (startX + endX) / 2)
+                .attr("y", (startY + endY) / 2 - 5)
+                .attr("text-anchor", "middle")
+                .selectAll("tspan")
+                .data(link.label.split('\n'))
+                .enter()
+                .append("tspan")
+                .attr("x", (startX + endX) / 2)
+                .attr("dy", (d, i) => i * 12)
+                .text(d => d);
+        });
+
+        // Draw nodes
+        const nodeGroups = svg.selectAll(".node")
+            .data(nodes)
+            .enter()
+            .append("g")
+            .attr("class", "node");
+
+        nodeGroups.append("rect")
+            .attr("x", d => d.x)
+            .attr("y", d => d.y)
+            .attr("width", d => d.width)
+            .attr("height", d => d.height)
+            .attr("rx", 5)
+            .attr("class", d => d.class);
+
+        nodeGroups.append("text")
+            .attr("x", d => d.x + d.width / 2)
+            .attr("y", d => d.y + 25)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("fill", "white")
+            .selectAll("tspan")
+            .data(d => d.label.split('\n'))
+            .enter()
+            .append("tspan")
+            .attr("x", d => {
+                const node = nodes.find(n => n.label.includes(d));
+                return node.x + node.width / 2;
+            })
+            .attr("dy", (d, i) => i * 14)
+            .text(d => d);
+
+        nodeGroups.append("text")
+            .attr("x", d => d.x + d.width / 2)
+            .attr("y", d => d.y + 55)
+            .attr("text-anchor", "middle")
+            .attr("font-size", "10px")
+            .attr("fill", "white")
+            .selectAll("tspan")
+            .data(d => d.sublabel.split('\n'))
+            .enter()
+            .append("tspan")
+            .attr("x", d => {
+                const node = nodes.find(n => n.sublabel.includes(d));
+                return node.x + node.width / 2;
+            })
+            .attr("dy", (d, i) => i * 11)
+            .text(d => d);
+
+        // Add package labels
+        svg.append("text")
+            .attr("x", 290)
+            .attr("y", 130)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("font-size", "14px")
+            .attr("fill", "#4285F4")
+            .text("Google Cloud Platform");
+
+        svg.append("text")
+            .attr("x", 290)
+            .attr("y", 330)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("font-size", "14px")
+            .attr("fill", "#FF0000")
+            .text("Adobe Experience Platform");
+
+        svg.append("text")
+            .attr("x", 680)
+            .attr("y", 430)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("font-size", "14px")
+            .attr("fill", "#34A853")
+            .text("Marketing Destinations");
+
+        // Benefits note
+        const benefits = [
+            "KEY BENEFITS:",
+            "• 99.96% data reduction (10 MB vs 2-10 TB)",
+            "• $247K-$701K/year (50% cost savings)",
+            "• 2-4 weeks implementation",
+            "• Zero vendor lock-in (all logic in BigQuery)",
+            "• Data never leaves GCP",
+            "",
+            "LIMITATIONS:",
+            "• Batch only (daily/hourly refresh)",
+            "• No real-time (<1 min latency)",
+            "• No Customer AI / Attribution AI"
+        ];
+
+        const benefitsGroup = svg.append("g");
+        benefitsGroup.append("rect")
+            .attr("x", 450)
+            .attr("y", 580)
+            .attr("width", 520)
+            .attr("height", 190)
+            .attr("fill", "#FFFACD")
+            .attr("stroke", "#333")
+            .attr("stroke-width", 1)
+            .attr("rx", 5);
+
+        benefitsGroup.selectAll("text")
+            .data(benefits)
+            .enter()
+            .append("text")
+            .attr("x", 460)
+            .attr("y", (d, i) => 600 + i * 16)
+            .attr("class", "note")
+            .attr("font-weight", (d, i) => (i === 0 || i === 7) ? "bold" : "normal")
+            .text(d => d);
+
+        // Data stays in GCP note
+        const gcpNote = svg.append("g");
+        gcpNote.append("rect")
+            .attr("x", 10)
+            .attr("y", 130)
+            .attr("width", 160)
+            .attr("height", 70)
+            .attr("fill", "#E8F0FE")
+            .attr("stroke", "#4285F4")
+            .attr("stroke-width", 1)
+            .attr("rx", 5);
+
+        ["Data stays in GCP", "✓ Zero vendor lock-in", "✓ GDPR compliant"].forEach((text, i) => {
+            gcpNote.append("text")
+                .attr("x", 90)
+                .attr("y", 150 + i * 16)
+                .attr("text-anchor", "middle")
+                .attr("class", "note")
+                .text(text);
+        });
+    </script>
+</body>
+</html>

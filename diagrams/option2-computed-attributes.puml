@@ -1,107 +1,48 @@
-@startuml option2-computed-attributes
-!define GCP_COLOR #4285F4
-!define ADOBE_COLOR #FF0000
-!define DEST_COLOR #34A853
-
-skinparam rectangle {
-    BackgroundColor<<gcp>> GCP_COLOR
-    BackgroundColor<<adobe>> ADOBE_COLOR
-    BackgroundColor<<dest>> DEST_COLOR
-    BorderColor Black
-    FontColor White
-}
-
-skinparam database {
-    BackgroundColor #FBBC04
-    BorderColor Black
-}
-
-skinparam cloud {
-    BackgroundColor #0F9D58
-    BorderColor Black
-    FontColor White
-}
+@startuml
+skinparam defaultTextAlignment center
+skinparam componentStyle rectangle
 
 title Option 2: Computed Attributes Pattern\nReal-Time Streaming with Minimal Profiles
 
-package "Google Cloud Platform (GCP)" <<gcp>> {
-    database "BigQuery\nData Warehouse" as bq {
-        rectangle "Raw Customer Data\n(stays in GCP)" as raw {
-            -- 100+ behavioral attributes
-            -- Historical events
-            -- (10M profiles, 2-10 TB)
-        }
-    }
-
-    rectangle "Lead Scoring\nModels" as models {
-        -- ML models execute
-        -- Compute scores/flags
-        -- Daily/hourly
-    }
-
-    rectangle "Computed Attributes\n(Minimal, 5-10 fields)" as computed {
-        -- lead_classification: "hot"
-        -- propensity_score: 0.87
-        -- engagement_index: 42
-        -- (10M × 5 fields = 500 MB)
-    }
-
-    cloud "Streaming Service" as stream {
-        Cloud Function /
-        Cloud Run
-    }
-
-    raw -down-> models : Daily/hourly\nscoring
-    models -down-> computed
-    computed -down-> stream
+package "Google Cloud Platform" #4285F4 {
+  [BigQuery\nData Warehouse\n\nRaw data stays here\n2-10 TB] as BQ #FBBC04
+  [Lead Scoring\nModels] as MODELS
+  [Computed Attributes\n\n5-10 fields\n500 MB] as COMP
+  [Streaming Service\nCloud Function] as STREAM #0F9D58
 }
 
-package "Adobe Experience Platform" <<adobe>> {
-    rectangle "Streaming Ingestion\nAPI" as api {
-        -- Receives minimal profiles
-        -- ~500 MB/day (vs 50-100 GB)
-    }
-
-    database "Real-Time\nCustomer Profile" as profile {
-        -- Stores computed attributes
-        -- 10M profiles × 5 fields
-        -- Enables fast lookups (<100ms)
-        -- Supports Customer AI
-    }
-
-    rectangle "Segmentation\nEngine" as segments {
-        -- "Hot Leads" (lead_class = hot)
-        -- "High Propensity" (score > 0.8)
-        -- Real-time evaluation (<5 min)
-    }
-
-    stream -down-> api : HTTPS API\n(Streaming Ingestion)
-    api -down-> profile
-    profile -down-> segments
+package "Adobe Experience Platform" #FF0000 {
+  [Streaming\nIngestion API] as API
+  [Real-Time\nCustomer Profile\n\n10M profiles] as PROFILE
+  [Segmentation\nEngine] as SEG
 }
 
-package "Marketing Destinations" <<dest>> {
-    rectangle "Marketo\n(Real-Time)" as marketo
-    rectangle "Google Ads\n(Real-Time)" as gads
-    rectangle "Sales CRM\n(Alerts)" as crm
-
-    segments -down-> marketo : Activate\nsegments
-    segments -down-> gads
-    segments -down-> crm
+package "Destinations" #34A853 {
+  [Marketo\nReal-Time] as MKT
+  [Google Ads\nReal-Time] as GAD
+  [Sales CRM\nAlerts] as CRM
 }
+
+BQ --> MODELS : Daily scoring
+MODELS --> COMP
+COMP --> STREAM
+STREAM --> API : HTTPS streaming
+API --> PROFILE
+PROFILE --> SEG
+SEG --> MKT
+SEG --> GAD
+SEG --> CRM
 
 note bottom
-    **KEY BENEFITS:**
-    ✓ 85-95% data reduction (500 MB vs 50-100 GB/day)
-    ✓ Real-time capability (2-10 min latency)
-    ✓ Full AEP features (Customer AI, Identity Graph)
-    ✓ $248K-$858K/year
+**BENEFITS:**
+• 85-95% data reduction
+• Real-time (2-10 min)
+• Full AEP features
 
-    **KEY TRADE-OFFS:**
-    ⚠ Profiles stored in AEP (vendor lock-in)
-    ⚠ Higher cost vs Option 1
-    ⚠ Dual-system complexity
-    ⚠ Schema coupling with AEP XDM
+**TRADE-OFFS:**
+• Vendor lock-in
+• Higher cost $248K-$858K/year
+• Dual-system complexity
 end note
 
 @enduml

@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Option 3: Hybrid Selective Pattern</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        #diagram {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        .subtitle {
+            font-size: 16px;
+            text-align: center;
+            margin-bottom: 30px;
+            color: #666;
+        }
+        .node rect {
+            stroke: #333;
+            stroke-width: 2px;
+        }
+        .node text {
+            font-size: 11px;
+            pointer-events: none;
+        }
+        .link {
+            fill: none;
+            stroke: #666;
+            stroke-width: 2px;
+            marker-end: url(#arrowhead);
+        }
+        .link-batch {
+            stroke: #4285F4;
+            stroke-width: 3px;
+        }
+        .link-realtime {
+            stroke: #EA4335;
+            stroke-width: 3px;
+        }
+        .link-label {
+            font-size: 10px;
+            fill: #666;
+        }
+        .note {
+            font-size: 11px;
+            fill: #333;
+        }
+        .gcp { fill: #4285F4; }
+        .batch { fill: #4285F4; }
+        .realtime { fill: #EA4335; }
+        .dest { fill: #34A853; }
+        .bq { fill: #FBBC04; }
+    </style>
+</head>
+<body>
+    <div class="title">Option 3: Hybrid Selective Pattern</div>
+    <div class="subtitle">99% Federated (Batch) + 1% Real-Time Streaming</div>
+    <svg id="diagram" width="1200" height="850"></svg>
+
+    <script>
+        const svg = d3.select("#diagram");
+
+        // Define arrow marker
+        svg.append("defs").append("marker")
+            .attr("id", "arrowhead")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 8)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-5L10,0L0,5")
+            .attr("fill", "#666");
+
+        // Define nodes
+        const nodes = [
+            // GCP
+            { id: "bq", label: "BigQuery\nData Warehouse", sublabel: "99% batch\n1% real-time", x: 100, y: 100, width: 160, height: 80, class: "bq" },
+
+            // AEP - Path 1 (Batch)
+            { id: "fac", label: "Federated\nComposition", sublabel: "99% volume", x: 50, y: 280, width: 140, height: 70, class: "batch" },
+            { id: "ea", label: "External\nAudiences", sublabel: "Daily refresh", x: 50, y: 400, width: 140, height: 70, class: "batch" },
+
+            // AEP - Path 2 (Real-Time)
+            { id: "stream", label: "Streaming\nAPI", sublabel: "1% volume", x: 250, y: 280, width: 140, height: 70, class: "realtime" },
+            { id: "profile", label: "Profile\nStore", sublabel: "100K profiles", x: 250, y: 400, width: 140, height: 70, class: "realtime" },
+
+            // Destinations
+            { id: "batch_dest", label: "Batch\nCampaigns", sublabel: "Marketo\nWeekly", x: 500, y: 250, width: 130, height: 70, class: "dest" },
+            { id: "rt_dest", label: "Real-Time\nTriggers", sublabel: "Google Ads\n<5 min", x: 500, y: 360, width: 130, height: 70, class: "dest" },
+            { id: "crm", label: "Sales CRM", sublabel: "Alerts\nImmediate", x: 500, y: 470, width: 130, height: 70, class: "dest" }
+        ];
+
+        // Define links
+        const links = [
+            { source: "bq", target: "fac", label: "Query daily\n(99%)", class: "link-batch" },
+            { source: "fac", target: "ea", label: "", class: "link-batch" },
+            { source: "ea", target: "batch_dest", label: "Activate", class: "link-batch" },
+
+            { source: "bq", target: "stream", label: "Stream\n(1%)", class: "link-realtime" },
+            { source: "stream", target: "profile", label: "", class: "link-realtime" },
+            { source: "profile", target: "rt_dest", label: "Activate", class: "link-realtime" },
+            { source: "profile", target: "crm", label: "Activate", class: "link-realtime" }
+        ];
+
+        // Draw links
+        links.forEach(link => {
+            const source = nodes.find(n => n.id === link.source);
+            const target = nodes.find(n => n.id === link.target);
+
+            const startX = source.x + source.width / 2;
+            const startY = source.y + source.height;
+            const endX = target.x + target.width / 2;
+            const endY = target.y;
+
+            svg.append("path")
+                .attr("class", `link ${link.class}`)
+                .attr("d", `M${startX},${startY} L${endX},${endY}`);
+
+            if (link.label) {
+                svg.append("text")
+                    .attr("class", "link-label")
+                    .attr("x", (startX + endX) / 2)
+                    .attr("y", (startY + endY) / 2 - 5)
+                    .attr("text-anchor", "middle")
+                    .selectAll("tspan")
+                    .data(link.label.split('\n'))
+                    .enter()
+                    .append("tspan")
+                    .attr("x", (startX + endX) / 2)
+                    .attr("dy", (d, i) => i * 11)
+                    .text(d => d);
+            }
+        });
+
+        // Draw nodes
+        const nodeGroups = svg.selectAll(".node")
+            .data(nodes)
+            .enter()
+            .append("g")
+            .attr("class", "node");
+
+        nodeGroups.append("rect")
+            .attr("x", d => d.x)
+            .attr("y", d => d.y)
+            .attr("width", d => d.width)
+            .attr("height", d => d.height)
+            .attr("rx", 5)
+            .attr("class", d => d.class);
+
+        nodeGroups.append("text")
+            .attr("x", d => d.x + d.width / 2)
+            .attr("y", d => d.y + 22)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("fill", "white")
+            .selectAll("tspan")
+            .data(d => d.label.split('\n'))
+            .enter()
+            .append("tspan")
+            .attr("x", d => {
+                const node = nodes.find(n => n.label.includes(d));
+                return node.x + node.width / 2;
+            })
+            .attr("dy", (d, i) => i * 12)
+            .text(d => d);
+
+        nodeGroups.append("text")
+            .attr("x", d => d.x + d.width / 2)
+            .attr("y", d => d.y + 48)
+            .attr("text-anchor", "middle")
+            .attr("font-size", "9px")
+            .attr("fill", "white")
+            .selectAll("tspan")
+            .data(d => d.sublabel.split('\n'))
+            .enter()
+            .append("tspan")
+            .attr("x", d => {
+                const node = nodes.find(n => n.sublabel.includes(d));
+                return node.x + node.width / 2;
+            })
+            .attr("dy", (d, i) => i * 10)
+            .text(d => d);
+
+        // Add section labels
+        svg.append("text")
+            .attr("x", 180)
+            .attr("y", 80)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("font-size", "14px")
+            .attr("fill", "#4285F4")
+            .text("Google Cloud Platform");
+
+        svg.append("text")
+            .attr("x", 120)
+            .attr("y", 260)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("font-size", "13px")
+            .attr("fill", "#4285F4")
+            .text("PATH 1: Federated (Batch)");
+
+        svg.append("text")
+            .attr("x", 320)
+            .attr("y", 260)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("font-size", "13px")
+            .attr("fill", "#EA4335")
+            .text("PATH 2: Real-Time");
+
+        svg.append("text")
+            .attr("x", 565)
+            .attr("y", 230)
+            .attr("text-anchor", "middle")
+            .attr("font-weight", "bold")
+            .attr("font-size", "14px")
+            .attr("fill", "#34A853")
+            .text("Destinations");
+
+        // Benefits note
+        const benefits = [
+            "HYBRID BENEFITS:",
+            "• Best economics: $286K-$693K/year (20-30% less than full real-time)",
+            "• 95-99% data reduction (99% via federated, 1% via streaming)",
+            "• Real-time where it matters, batch where sufficient",
+            "• 99% vendor independence (bulk logic in BigQuery)",
+            "• Incremental adoption path (start federated, add real-time)",
+            "",
+            "USE CASE SPLIT:",
+            "• 99% Batch: Daily nurture, weekly campaigns, suppression lists",
+            "• 1% Real-Time: Sales alerts, urgent lead routing, time-sensitive offers"
+        ];
+
+        const benefitsGroup = svg.append("g");
+        benefitsGroup.append("rect")
+            .attr("x", 50)
+            .attr("y", 600)
+            .attr("width", 700)
+            .attr("height", 190)
+            .attr("fill", "#FFFACD")
+            .attr("stroke", "#333")
+            .attr("stroke-width", 1)
+            .attr("rx", 5);
+
+        benefitsGroup.selectAll("text")
+            .data(benefits)
+            .enter()
+            .append("text")
+            .attr("x", 60)
+            .attr("y", (d, i) => 620 + i * 16)
+            .attr("class", "note")
+            .attr("font-weight", (d, i) => (i === 0 || i === 7) ? "bold" : "normal")
+            .text(d => d);
+
+        // Legend
+        const legend = svg.append("g");
+        legend.append("line")
+            .attr("x1", 750)
+            .attr("y1", 300)
+            .attr("x2", 820)
+            .attr("y2", 300)
+            .attr("stroke", "#4285F4")
+            .attr("stroke-width", 3);
+        legend.append("text")
+            .attr("x", 830)
+            .attr("y", 304)
+            .attr("font-size", "12px")
+            .text("Batch Path (99%)");
+
+        legend.append("line")
+            .attr("x1", 750)
+            .attr("y1", 330)
+            .attr("x2", 820)
+            .attr("y2", 330)
+            .attr("stroke", "#EA4335")
+            .attr("stroke-width", 3);
+        legend.append("text")
+            .attr("x", 830)
+            .attr("y", 334)
+            .attr("font-size", "12px")
+            .text("Real-Time Path (1%)");
+    </script>
+</body>
+</html>
