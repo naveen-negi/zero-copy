@@ -54,8 +54,7 @@ else (NO - Blocked)
 
   if (Do you need real-time\n(<5 min latency)?) then (YES)
 
-    :✓ **OPTION 2**\n**Computed Attributes Pattern**\n\n• Stream derived scores from BigQuery\n• 2-10 min latency\n• Full AEP features\n• $248K-$858K/year\n• Vendor lock-in: Medium-High]
-    OPTION2_COLOR
+    :✓ **OPTION 2**\n**Computed Attributes Pattern**\n\n• Stream derived scores from BigQuery\n• 2-10 min latency\n• Full AEP features\n• $248K-$858K/year\n• Vendor lock-in: Medium-High] OPTION2_COLOR
 
     stop
 
@@ -63,8 +62,7 @@ else (NO - Blocked)
 
     if (Can you build audiences\nin BigQuery and upload IDs?) then (YES)
 
-      :⚠ **OPTION 4**\n**External Audiences (CSV/API)**\n\n• Manual upload of audience IDs\n• Good for POC/testing\n• 30-day TTL (must re-upload)\n• $112K-$292K/year\n• NOT for production long-term]
-      #FFDAB9
+      :⚠ **OPTION 4**\n**External Audiences (CSV/API)**\n\n• Manual upload of audience IDs\n• Good for POC/testing\n• 30-day TTL (must re-upload)\n• $112K-$292K/year\n• NOT for production long-term] #FFDAB9
 
       note right
         **Recommendation:**
@@ -76,8 +74,7 @@ else (NO - Blocked)
 
     else (NO)
 
-      :❌ **NO VIABLE OPTION**\n\nRecommendation:\n1. Lobby security for FAC approval\n2. OR use GCP-native activation\n   (skip AEP entirely)]
-      BLOCKER_COLOR
+      :❌ **NO VIABLE OPTION**\n\nRecommendation:\n1. Lobby security for FAC approval\n2. OR use GCP-native activation\n   (skip AEP entirely)] BLOCKER_COLOR
 
       stop
 
@@ -101,8 +98,7 @@ if (Do you need real-time\nactivation (<5 min)?) then (NO - Batch OK)
     • Suppression lists
   end note
 
-  :✓ **OPTION 1 (RECOMMENDED)**\n**Federated Audience Composition**\n\n• Query BigQuery in-place\n• 99.96% data reduction\n• $247K-$701K/year (50% savings)\n• Zero vendor lock-in\n• Data stays in GCP\n• 2-4 weeks implementation]
-  OPTION1_COLOR
+  :✓ **OPTION 1 (RECOMMENDED)**\n**Federated Audience Composition**\n\n• Query BigQuery in-place\n• 99.96% data reduction\n• $247K-$701K/year (50% savings)\n• Zero vendor lock-in\n• Data stays in GCP\n• 2-4 weeks implementation] OPTION1_COLOR
 
   note right
     **Best choice for:**
@@ -129,8 +125,7 @@ else (YES - Need Real-Time)
 
   if (What percentage?) then (<10% need real-time)
 
-    :✓ **OPTION 3 (HYBRID)**\n**Hybrid Selective Pattern**\n\n• 99% Federated (batch)\n• 1% Computed Attributes (real-time)\n• Best economics + real-time\n• $286K-$693K/year\n• 95-99% data reduction\n• Vendor lock-in: Low (99% in BigQuery)]
-    OPTION3_COLOR
+    :✓ **OPTION 3 (HYBRID)**\n**Hybrid Selective Pattern**\n\n• 99% Federated (batch)\n• 1% Computed Attributes (real-time)\n• Best economics + real-time\n• $286K-$693K/year\n• 95-99% data reduction\n• Vendor lock-in: Low (99% in BigQuery)] OPTION3_COLOR
 
     note right
       **Example split:**
@@ -148,15 +143,13 @@ else (YES - Need Real-Time)
 
     if (Prefer...) then (Cost Optimization)
 
-      :✓ **OPTION 3 (HYBRID)**\n**Hybrid Selective Pattern**\n\n• Optimize costs\n• Manage complexity\n• $286K-$693K/year]
-      OPTION3_COLOR
+      :✓ **OPTION 3 (HYBRID)**\n**Hybrid Selective Pattern**\n\n• Optimize costs\n• Manage complexity\n• $286K-$693K/year] OPTION3_COLOR
 
       stop
 
     else (Simplicity)
 
-      :✓ **OPTION 2**\n**Computed Attributes Pattern**\n\n• Single architecture\n• All profiles streamed\n• $248K-$858K/year\n• Easier operations]
-      OPTION2_COLOR
+      :✓ **OPTION 2**\n**Computed Attributes Pattern**\n\n• Single architecture\n• All profiles streamed\n• $248K-$858K/year\n• Easier operations] OPTION2_COLOR
 
       stop
 
@@ -164,8 +157,7 @@ else (YES - Need Real-Time)
 
   else (>50% need real-time)
 
-    :✓ **OPTION 2**\n**Computed Attributes Pattern**\n\n• Stream derived scores to AEP\n• Real-time capability (2-10 min)\n• Full AEP features (Customer AI, Identity Graph)\n• Web personalization (<100ms)\n• $248K-$858K/year\n• Vendor lock-in: Medium-High]
-    OPTION2_COLOR
+    :✓ **OPTION 2**\n**Computed Attributes Pattern**\n\n• Stream derived scores to AEP\n• Real-time capability (2-10 min)\n• Full AEP features (Customer AI, Identity Graph)\n• Web personalization (<100ms)\n• $248K-$858K/year\n• Vendor lock-in: Medium-High] OPTION2_COLOR
 
     note right
       **When to use:**

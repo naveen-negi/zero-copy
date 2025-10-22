@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AEP Zero-Copy Decision Tree</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        #container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+
+        #tree {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        .node rect {
+            stroke: #333;
+            stroke-width: 2px;
+            cursor: pointer;
+        }
+
+        .node text {
+            font-size: 12px;
+            pointer-events: none;
+        }
+
+        .link {
+            fill: none;
+            stroke: #555;
+            stroke-width: 2px;
+        }
+
+        .decision {
+            fill: #FFE4B5;
+        }
+
+        .option1 {
+            fill: #90EE90;
+        }
+
+        .option2 {
+            fill: #87CEEB;
+        }
+
+        .option3 {
+            fill: #DDA0DD;
+        }
+
+        .option4 {
+            fill: #FFDAB9;
+        }
+
+        .blocker {
+            fill: #FFB6C1;
+        }
+
+        .start {
+            fill: #E8F4F8;
+        }
+
+        .link-label {
+            font-size: 11px;
+            fill: #666;
+            font-weight: bold;
+        }
+
+        .legend {
+            margin-top: 30px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+
+        .legend-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .legend-item {
+            display: inline-block;
+            margin-right: 20px;
+            margin-bottom: 5px;
+        }
+
+        .legend-color {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            margin-right: 5px;
+            vertical-align: middle;
+            border: 1px solid #333;
+        }
+
+        .node:hover rect {
+            filter: brightness(0.9);
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            max-width: 300px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <h1>AEP Zero-Copy Architecture - Decision Tree</h1>
+        <div class="subtitle">Banking/GCP Environment | Interactive Decision Guide</div>
+        <div id="tree"></div>
+        <div class="legend">
+            <div class="legend-title">Legend:</div>
+            <div class="legend-item">
+                <span class="legend-color start"></span>
+                <span>Start/Decision</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color decision"></span>
+                <span>Decision Point</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color option1"></span>
+                <span>Option 1 (FAC)</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color option2"></span>
+                <span>Option 2 (Computed Attributes)</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color option3"></span>
+                <span>Option 3 (Hybrid)</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color option4"></span>
+                <span>Option 4 (External Audiences)</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color blocker"></span>
+                <span>Blocker/Warning</span>
+            </div>
+        </div>
+    </div>
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        // Tree data structure
+        const treeData = {
+            name: "START",
+            description: "You have BigQuery lead scoring\nNeed to activate via AEP",
+            type: "start",
+            tooltip: "Context:\n• Cold/Warm/Hot lead classification in BigQuery\n• Want to activate to marketing channels\n• Minimize data transfer & vendor lock-in",
+            children: [
+                {
+                    name: "Security/Compliance Check",
+                    description: "Can you expose BigQuery\nto external systems (AEP)?",
+                    type: "decision",
+                    tooltip: "Critical decision for FAC viability",
+                    children: [
+                        {
+                            name: "YES - Approved",
+                            edge: "YES",
+                            children: [
+                                {
+                                    name: "Latency Requirements",
+                                    description: "Do you need real-time\nactivation (<5 min)?",
+                                    type: "decision",
+                                    children: [
+                                        {
+                                            name: "NO - Batch OK",
+                                            edge: "NO",
+                                            children: [
+                                                {
+                                                    name: "OPTION 1",
+                                                    description: "✓ Federated Audience Composition\n• Query BigQuery in-place\n• 99.96% data reduction\n• $247K-$701K/year (50% savings)\n• Zero vendor lock-in\n• 2-4 weeks implementation",
+                                                    type: "option1",
+                                                    tooltip: "RECOMMENDED for batch use cases"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            name: "YES - Real-Time",
+                                            edge: "YES",
+                                            children: [
+                                                {
+                                                    name: "Percentage Check",
+                                                    description: "What % of use cases\nneed real-time?",
+                                                    type: "decision",
+                                                    children: [
+                                                        {
+                                                            name: "<10%",
+                                                            edge: "<10%",
+                                                            children: [
+                                                                {
+                                                                    name: "OPTION 3 (HYBRID)",
+                                                                    description: "✓ Hybrid Selective Pattern\n• 99% Federated (batch)\n• 1% Computed Attributes (real-time)\n• $286K-$693K/year\n• 95-99% data reduction",
+                                                                    type: "option3"
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            name: "10-50%",
+                                                            edge: "10-50%",
+                                                            children: [
+                                                                {
+                                                                    name: "Cost vs Simplicity?",
+                                                                    description: "Prefer cost optimization\nor simplicity?",
+                                                                    type: "decision",
+                                                                    children: [
+                                                                        {
+                                                                            name: "Cost Optimization",
+                                                                            edge: "Cost",
+                                                                            children: [
+                                                                                {
+                                                                                    name: "OPTION 3 (HYBRID)",
+                                                                                    description: "✓ Hybrid Selective Pattern\n• Optimize costs\n• Manage complexity\n• $286K-$693K/year",
+                                                                                    type: "option3"
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        {
+                                                                            name: "Simplicity",
+                                                                            edge: "Simple",
+                                                                            children: [
+                                                                                {
+                                                                                    name: "OPTION 2",
+                                                                                    description: "✓ Computed Attributes\n• Single architecture\n• All profiles streamed\n• $248K-$858K/year",
+                                                                                    type: "option2"
+                                                                                }
+                                                                            ]
+                                                                        }
+                                                                    ]
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            name: ">50%",
+                                                            edge: ">50%",
+                                                            children: [
+                                                                {
+                                                                    name: "OPTION 2",
+                                                                    description: "✓ Computed Attributes Pattern\n• Stream derived scores to AEP\n• 2-10 min latency\n• Full AEP features\n• $248K-$858K/year",
+                                                                    type: "option2"
+                                                                }
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            name: "NO - Blocked",
+                            edge: "NO",
+                            children: [
+                                {
+                                    name: "FAC NOT POSSIBLE",
+                                    description: "Must use push-based patterns",
+                                    type: "blocker",
+                                    tooltip: "✗ Security policy blocks external DB access\n✗ BaFin compliance restrictions\n✗ Data residency requirements",
+                                    children: [
+                                        {
+                                            name: "Real-time needed?",
+                                            description: "Do you need real-time\n(<5 min latency)?",
+                                            type: "decision",
+                                            children: [
+                                                {
+                                                    name: "YES",
+                                                    edge: "YES",
+                                                    children: [
+                                                        {
+                                                            name: "OPTION 2",
+                                                            description: "✓ Computed Attributes Pattern\n• Stream derived scores\n• 2-10 min latency\n• Full AEP features\n• $248K-$858K/year",
+                                                            type: "option2"
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    name: "NO - Batch",
+                                                    edge: "NO",
+                                                    children: [
+                                                        {
+                                                            name: "Can build audiences?",
+                                                            description: "Can you build audiences\nin BigQuery and upload IDs?",
+                                                            type: "decision",
+                                                            children: [
+                                                                {
+                                                                    name: "YES",
+                                                                    edge: "YES",
+                                                                    children: [
+                                                                        {
+                                                                            name: "OPTION 4",
+                                                                            description: "⚠ External Audiences (CSV/API)\n• Manual upload of IDs\n• Good for POC/testing\n• 30-day TTL (must re-upload)\n• $112K-$292K/year\n• NOT for production long-term",
+                                                                            type: "option4",
+                                                                            tooltip: "Recommendation: Use for POC only. Lobby for FAC approval."
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                {
+                                                                    name: "NO",
+                                                                    edge: "NO",
+                                                                    children: [
+                                                                        {
+                                                                            name: "NO VIABLE OPTION",
+                                                                            description: "❌ Recommendations:\n1. Lobby security for FAC\n2. OR use GCP-native activation\n   (skip AEP entirely)",
+                                                                            type: "blocker"
+                                                                        }
+                                                                    ]
+                                                                }
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        // Set up dimensions
+        const margin = {top: 20, right: 120, bottom: 20, left: 120};
+        const width = 1200 - margin.left - margin.right;
+        const height = 1400 - margin.top - margin.bottom;
+
+        // Create SVG
+        const svg = d3.select("#tree")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Create tree layout
+        const treeLayout = d3.tree()
+            .size([height, width])
+            .separation((a, b) => (a.parent === b.parent ? 1 : 1.2));
+
+        // Create hierarchy
+        const root = d3.hierarchy(treeData);
+        treeLayout(root);
+
+        // Add links
+        svg.selectAll(".link")
+            .data(root.links())
+            .enter()
+            .append("path")
+            .attr("class", "link")
+            .attr("d", d3.linkHorizontal()
+                .x(d => d.y)
+                .y(d => d.x));
+
+        // Add link labels
+        svg.selectAll(".link-label")
+            .data(root.links())
+            .enter()
+            .append("text")
+            .attr("class", "link-label")
+            .attr("x", d => (d.source.y + d.target.y) / 2)
+            .attr("y", d => (d.source.x + d.target.x) / 2 - 5)
+            .text(d => d.target.data.edge || "");
+
+        // Add nodes
+        const node = svg.selectAll(".node")
+            .data(root.descendants())
+            .enter()
+            .append("g")
+            .attr("class", "node")
+            .attr("transform", d => `translate(${d.y},${d.x})`);
+
+        // Add rectangles
+        node.append("rect")
+            .attr("width", 180)
+            .attr("height", d => {
+                const lines = (d.data.description || d.data.name).split('\n').length;
+                return Math.max(60, lines * 16 + 20);
+            })
+            .attr("x", -90)
+            .attr("y", d => {
+                const lines = (d.data.description || d.data.name).split('\n').length;
+                return -Math.max(60, lines * 16 + 20) / 2;
+            })
+            .attr("rx", 5)
+            .attr("class", d => d.data.type || "decision");
+
+        // Add text
+        node.each(function(d) {
+            const text = d.data.description || d.data.name;
+            const lines = text.split('\n');
+            const lineHeight = 14;
+            const startY = -(lines.length - 1) * lineHeight / 2;
+
+            d3.select(this)
+                .selectAll("text")
+                .data(lines)
+                .enter()
+                .append("text")
+                .attr("dy", (d, i) => startY + i * lineHeight)
+                .attr("text-anchor", "middle")
+                .style("font-size", "11px")
+                .style("font-weight", (d, i) => i === 0 ? "bold" : "normal")
+                .text(d => d);
+        });
+
+        // Add tooltips
+        const tooltip = d3.select("#tooltip");
+
+        node.on("mouseenter", function(event, d) {
+            if (d.data.tooltip) {
+                tooltip
+                    .style("opacity", 1)
+                    .html(d.data.tooltip.replace(/\n/g, '<br>'))
+                    .style("left", (event.pageX + 10) + "px")
+                    .style("top", (event.pageY - 10) + "px");
+            }
+        })
+        .on("mousemove", function(event) {
+            tooltip
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px");
+        })
+        .on("mouseleave", function() {
+            tooltip.style("opacity", 0);
+        });
+
+    </script>
+</body>
+</html>
