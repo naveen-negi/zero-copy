@@ -1120,6 +1120,507 @@ WHERE lead_score > 80
 
 ---
 
+#### Q33: What is audience composition? What's actually happening underneath? What does an audience look like when activated?
+
+**Short Answer:** Audience composition is the process of evaluating segment rules against your data to produce a list of customer IDs. When activated, an audience typically contains customer IDs + optional enrichment fields (email, name, etc.) sent to destinations.
+
+---
+
+### What is Audience Composition?
+
+**Definition:** The process of taking a segment definition (rules/criteria) and executing it against your customer data to produce an **audience** (the actual list of customer IDs that match).
+
+**Think of it like:**
+- **Segment Definition** = SQL WHERE clause: `WHERE lead_score > 80 AND region = 'California'`
+- **Audience Composition** = Running the query and getting results: 5,432 customer IDs
+
+---
+
+### What's Actually Happening Underneath?
+
+**Step-by-Step Process:**
+
+**1. Segment Evaluation (Composition)**
+
+**Traditional AEP (Profile Store):**
+```
+User clicks "Build Audience" in AEP UI
+  ↓
+AEP Segmentation Engine evaluates rules against Profile Store
+  ↓
+Example Rule: "lead_score > 80 AND last_purchase_date < 30 days ago"
+  ↓
+Segmentation Engine scans 10 million profiles
+  ↓
+Finds 50,000 profiles matching criteria
+  ↓
+Audience created with 50,000 customer IDs
+```
+
+**Federated Audience Composition (BigQuery):**
+```
+User clicks "Build Audience" in AEP UI
+  ↓
+AEP generates SQL query from visual composition
+  ↓
+Example SQL:
+  SELECT partnerId, email, firstName
+  FROM `project.dataset.customers`
+  WHERE lead_score > 80 AND last_purchase_date > DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+  ↓
+AEP sends query to BigQuery
+  ↓
+BigQuery executes query (2-10 seconds)
+  ↓
+BigQuery returns 50,000 rows (partnerId, email, firstName)
+  ↓
+AEP creates "External Audience" with these 50,000 IDs + enrichment fields
+```
+
+---
+
+**2. Audience Storage**
+
+**What AEP stores:**
+- Customer IDs (partnerId, email, ECID, etc.)
+- Optional enrichment fields (first name, last name, phone, etc.)
+- Segment membership metadata (when customer joined audience, last qualification time)
+
+**Example Audience Record in AEP:**
+```json
+{
+  "audienceId": "aud_12345",
+  "audienceName": "Hot Leads - California",
+  "members": [
+    {
+      "partnerId": "P123456",
+      "email": "john@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "phone": "+1-555-0100",
+      "qualifiedAt": "2025-10-22T10:30:00Z"
+    },
+    {
+      "partnerId": "P123457",
+      "email": "jane@example.com",
+      "firstName": "Jane",
+      "lastName": "Smith",
+      "qualifiedAt": "2025-10-22T10:30:00Z"
+    }
+    // ... 49,998 more members
+  ],
+  "totalMembers": 50000,
+  "lastEvaluated": "2025-10-22T10:30:00Z"
+}
+```
+
+---
+
+### Is It Just About Selecting Customer IDs?
+
+**Short Answer:** Mostly YES, but you can include additional enrichment fields.
+
+**Minimum Required:**
+- **Customer identifier** (partnerId, email, ECID, phone, etc.)
+  - At least ONE identifier that the destination platform can use
+
+**Optional Enrichment Fields:**
+- First name, last name
+- Email address (if not the primary identifier)
+- Phone number
+- Custom attributes (VIP tier, lead score, product interests, etc.)
+
+**Example Scenarios:**
+
+**Scenario 1: Just IDs (Minimal)**
+```sql
+-- Federated Audience Composition Query
+SELECT partnerId
+FROM `project.dataset.customers`
+WHERE lead_score > 80
+```
+
+**Result:** Audience contains ONLY customer IDs
+```
+partnerId
+---------
+P123456
+P123457
+P123458
+...
+```
+
+**When to use:** Destination already has customer data (e.g., activating to your own CRM or data warehouse)
+
+---
+
+**Scenario 2: IDs + Enrichment Fields (Common)**
+```sql
+-- Federated Audience Composition Query
+SELECT
+  partnerId,
+  email,
+  firstName,
+  lastName,
+  leadScore,
+  productInterest
+FROM `project.dataset.customers`
+WHERE lead_score > 80
+```
+
+**Result:** Audience contains IDs + enrichment data
+```
+partnerId | email              | firstName | lastName | leadScore | productInterest
+----------|-------------------|-----------|----------|-----------|------------------
+P123456   | john@example.com  | John      | Doe      | 92        | Enterprise Plan
+P123457   | jane@example.com  | Jane      | Smith    | 85        | Pro Plan
+...
+```
+
+**When to use:** Destination needs additional fields for personalization (e.g., email campaigns that use firstName in subject line)
+
+---
+
+### How Does an Audience Look When Activated?
+
+**Activation = Sending audience data to a destination (Google Ads, Marketo, Salesforce, etc.)**
+
+**What gets sent depends on the destination:**
+
+---
+
+**Example 1: Email Campaign Activation (Marketo)**
+
+**Use Case:** Send email to "Hot Leads" audience
+
+**What AEP Sends to Marketo:**
+```json
+{
+  "audienceName": "Hot Leads - California",
+  "members": [
+    {
+      "email": "john@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "leadScore": 92,
+      "productInterest": "Enterprise Plan"
+    },
+    {
+      "email": "jane@example.com",
+      "firstName": "Jane",
+      "lastName": "Smith",
+      "leadScore": 85,
+      "productInterest": "Pro Plan"
+    }
+    // ... 49,998 more
+  ]
+}
+```
+
+**What Marketo Does:**
+1. Receives 50,000 email addresses + enrichment fields
+2. Creates a static list: "Hot Leads - California"
+3. Marketing team creates email campaign
+4. Email template uses `{{firstName}}` and `{{productInterest}}` for personalization
+5. Email sent: "Hi John, interested in our Enterprise Plan? Here's a special offer..."
+
+**Activation Frequency:**
+- One-time upload OR
+- Daily/hourly sync (audience membership refreshes)
+
+---
+
+**Example 2: Google Ads Activation**
+
+**Use Case:** Target ads to "Hot Leads" audience
+
+**What AEP Sends to Google Ads:**
+
+**Option A: Hashed Emails (Most Common)**
+```json
+{
+  "audienceName": "Hot Leads - California",
+  "matchKeys": "EMAIL",
+  "members": [
+    "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",  // SHA256(john@example.com)
+    "96d9632f363564cc3032521409cf22a852f2032eec099ed5967c0d000cec607a",  // SHA256(jane@example.com)
+    // ... 49,998 more hashed emails
+  ]
+}
+```
+
+**Option B: Mobile Advertising IDs**
+```json
+{
+  "audienceName": "Hot Leads - California",
+  "matchKeys": "MOBILE_ADVERTISING_ID",
+  "members": [
+    "38400000-8cf0-11bd-b23e-10b96e40000d",  // Google Advertising ID (GAID)
+    "a8f3b2c1-9d4e-4567-8901-2b3c4d5e6f7a",  // GAID
+    // ...
+  ]
+}
+```
+
+**What Google Ads Does:**
+1. Receives hashed emails or mobile IDs
+2. Matches against Google's user database
+3. Creates custom audience in Google Ads
+4. Estimated match rate: 40-70% (many emails won't match Google users)
+5. Ads target the matched users
+
+**Key Point:** Google Ads doesn't receive enrichment fields (leadScore, firstName, etc.). It only receives identifiers for matching.
+
+---
+
+**Example 3: Webhook/API Activation (Custom Destination)**
+
+**Use Case:** Send audience to your own API for custom processing
+
+**What AEP Sends to Your API:**
+```http
+POST https://your-api.com/audiences/activate
+Content-Type: application/json
+
+{
+  "audienceId": "aud_12345",
+  "audienceName": "Hot Leads - California",
+  "timestamp": "2025-10-22T10:30:00Z",
+  "members": [
+    {
+      "partnerId": "P123456",
+      "email": "john@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "leadScore": 92,
+      "productInterest": "Enterprise Plan",
+      "customField1": "value1",
+      "customField2": "value2"
+    },
+    {
+      "partnerId": "P123457",
+      "email": "jane@example.com",
+      "firstName": "Jane",
+      "lastName": "Smith",
+      "leadScore": 85,
+      "productInterest": "Pro Plan"
+    }
+    // ... 49,998 more
+  ]
+}
+```
+
+**Flexibility:** You control the payload structure and can include as many enrichment fields as needed.
+
+---
+
+### Can There Be More Fields? How Many?
+
+**Yes! You can include enrichment fields, but there are practical limits:**
+
+**Typical Limits:**
+
+**1. AEP Profile Store Approach:**
+- You can select ANY profile attributes for activation
+- Common: 5-20 enrichment fields
+- Maximum: 100+ fields (technically possible, but rare)
+- **Limitation:** Destination APIs may have field limits (e.g., Marketo limits ~100 custom fields per record)
+
+**2. Federated Audience Composition:**
+- You SELECT which fields to include in your SQL query
+- **Example:**
+```sql
+SELECT
+  partnerId,
+  email,
+  firstName,
+  lastName,
+  leadScore,
+  productInterest,
+  industrySegment,
+  companySize,
+  lastPurchaseDate,
+  totalLifetimeValue
+FROM `project.dataset.customers`
+WHERE lead_score > 80
+```
+- You can include as many fields as your SQL query returns
+- **Best Practice:** Only include fields the destination actually needs (reduces data transfer costs)
+
+**3. Destination Limits:**
+- Each destination has its own limits:
+  - **Google Ads:** Only accepts identifiers (email, phone, mobile ID) - NO enrichment fields
+  - **Marketo:** Accepts 100+ fields for personalization
+  - **Salesforce:** Accepts standard + custom fields (depends on your Salesforce schema)
+  - **Custom Webhooks:** You define the schema (unlimited fields)
+
+---
+
+### Real-World Example: Email Campaign Activation
+
+**Use Case:** Send personalized email to Hot Leads with product recommendations
+
+**Step 1: Build Audience in AEP (Federated Audience Composition)**
+
+```sql
+SELECT
+  customer_id,
+  email,
+  first_name,
+  last_name,
+  lead_score,
+  product_interest,
+  industry,
+  company_size,
+  last_interaction_date
+FROM `banking-project.marketing.customer_profiles`
+WHERE
+  lead_score > 80
+  AND last_interaction_date > DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+  AND product_interest IN ('Enterprise Plan', 'Pro Plan')
+  AND region = 'California'
+```
+
+**Result:** 5,432 customer IDs + enrichment fields
+
+---
+
+**Step 2: Audience Composition Completes**
+
+AEP creates "Hot Leads - California" audience with 5,432 members:
+
+```
+customer_id | email            | first_name | lead_score | product_interest | industry | company_size
+------------|------------------|------------|------------|------------------|----------|-------------
+C001        | john@example.com | John       | 92         | Enterprise Plan  | Finance  | 500-1000
+C002        | jane@example.com | Jane       | 85         | Pro Plan         | Healthcare | 100-500
+...
+```
+
+---
+
+**Step 3: Activate to Marketo**
+
+AEP sends audience to Marketo via API:
+
+```json
+POST https://marketo-api.com/lists/import
+{
+  "listName": "Hot Leads - California",
+  "members": [
+    {
+      "email": "john@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "leadScore": 92,
+      "productInterest": "Enterprise Plan",
+      "industry": "Finance",
+      "companySize": "500-1000"
+    },
+    {
+      "email": "jane@example.com",
+      "firstName": "Jane",
+      "lastName": "Smith",
+      "leadScore": 85,
+      "productInterest": "Pro Plan",
+      "industry": "Healthcare",
+      "companySize": "100-500"
+    }
+    // ... 5,430 more
+  ]
+}
+```
+
+---
+
+**Step 4: Marketo Processes Audience**
+
+- Marketo creates static list: "Hot Leads - California" (5,432 contacts)
+- Marketing team creates email template:
+
+```html
+<h1>Hi {{firstName}},</h1>
+<p>We noticed you're interested in our {{productInterest}}.</p>
+<p>As a {{industry}} company with {{companySize}} employees,
+   here's a personalized offer just for you...</p>
+<a href="https://example.com/offer?plan={{productInterest}}">
+  View Offer
+</a>
+```
+
+---
+
+**Step 5: Email Sent**
+
+Each customer receives personalized email:
+
+**John's Email:**
+```
+Hi John,
+
+We noticed you're interested in our Enterprise Plan.
+As a Finance company with 500-1000 employees, here's a
+personalized offer just for you...
+
+[View Offer]
+```
+
+**Jane's Email:**
+```
+Hi Jane,
+
+We noticed you're interested in our Pro Plan.
+As a Healthcare company with 100-500 employees, here's a
+personalized offer just for you...
+
+[View Offer]
+```
+
+---
+
+### Key Takeaways
+
+**1. Audience Composition = Execution of Segment Rules**
+- Segment = Recipe (rules/criteria)
+- Audience Composition = Cooking the recipe (execution)
+- Audience = Finished dish (list of customer IDs + optional enrichment)
+
+**2. What Gets Sent to Destinations:**
+- **Minimum:** Customer identifiers (partnerId, email, phone, etc.)
+- **Common:** IDs + 5-20 enrichment fields (name, score, interests, etc.)
+- **Depends on destination:** Google Ads only accepts IDs; Marketo accepts 100+ fields
+
+**3. Federated Audience Composition:**
+- You control what fields to include in SQL SELECT clause
+- Only selected fields are transferred to AEP
+- TRUE zero-copy: All other data stays in BigQuery
+
+**4. Traditional AEP (Profile Store):**
+- All profile attributes available for activation
+- Select which fields to send to each destination
+- Data already in AEP, so no query latency
+
+**5. Practical Example Flow:**
+```
+Build Audience (SQL or UI rules)
+  ↓
+Evaluate against data (BigQuery or AEP Profile Store)
+  ↓
+Audience Created (customer IDs + enrichment fields)
+  ↓
+Activate to Destination (Marketo, Google Ads, etc.)
+  ↓
+Destination uses IDs to match users + enrichment for personalization
+```
+
+**6. Best Practice:**
+- Only include enrichment fields that the destination actually uses
+- Too many fields = unnecessary data transfer costs
+- Too few fields = missed personalization opportunities
+- Sweet spot: 5-10 enrichment fields for most use cases
+
+---
+
 ### Zero-Copy Architecture
 
 #### Q20: Can I use AEP without copying all my data into it?
