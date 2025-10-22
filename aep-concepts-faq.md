@@ -1393,6 +1393,399 @@ WHERE lead_score > 80
 
 **Bottom Line:** The biggest savings come from NOT storing full profiles in AEP (use Federated Audience Composition).
 
+#### Q29: Where did Pattern 2 (Reference Architecture with External Profile Store) come from? Who's using it?
+
+**Honest Answer:** Pattern 2 is a **conceptual pattern** I described based on general data minimization principles, NOT an officially documented Adobe pattern with published case studies.
+
+**Origins:**
+- This pattern combines concepts from "profile stubs" and "external enrichment" architectures
+- Similar approaches are discussed in CDP/data architecture circles (conferences, consulting engagements)
+- NOT a named Adobe pattern with official documentation
+
+**Who Might Use This?**
+- Organizations exploring AEP but wanting to minimize vendor lock-in
+- Companies with strict data residency requirements (can't store full profiles in US/EU Adobe data centers)
+- POC/pilot projects where teams want to test AEP activation capabilities without full commitment
+
+**Sources / Evidence:**
+- **Conceptual basis:** General data architecture best practices (external systems of record, profile enrichment patterns)
+- **No public case studies:** Adobe doesn't publish case studies of customers using this "profile stub" approach (likely because it undermines AEP's core value proposition)
+- **Anecdotal:** I've seen variations of this in architecture discussions, but no formal documentation
+
+**Honest Assessment:**
+- If you're primarily using this pattern, you're probably NOT getting good value from AEP
+- Adobe would likely recommend either:
+  1. Use Federated Audience Composition (Option 1) instead - officially supported zero-copy approach
+  2. Commit to full profile ingestion (Option 2) to unlock all AEP features
+
+**Alternative with Official Support:**
+- **Use Federated Audience Composition (Option 1)** instead of Pattern 2
+- It's Adobe's official zero-copy solution (launched 2024/2025)
+- Better supported, documented, and more reliable than the conceptual "profile stub" pattern
+
+**Bottom Line:** Pattern 2 is a theoretical approach, not a widely adopted or Adobe-blessed pattern. For production zero-copy architecture, use Federated Audience Composition (Option 1).
+
+---
+
+#### Q30: If I use a single partnerId in both AEP and BigQuery, do I still need identity stitching?
+
+**Short Answer:** No, you likely DON'T need AEP's Identity Graph if you already have a deterministic single ID.
+
+**Context of Your Architecture:**
+- You use `partnerId` as the primary key in BigQuery
+- You send `partnerId` + email + minimal attributes to AEP
+- All systems (web, mobile, CRM, email) already use this same `partnerId`
+
+**When Identity Stitching is NOT Needed:**
+
+**Scenario 1: Single Deterministic ID (Your Case)**
+```
+Your Architecture:
+  Web visit → User logs in → partnerId assigned → All subsequent events tagged with partnerId
+  Mobile app → User logs in → Same partnerId → All events tagged
+  Email click → partnerId in URL parameter → Event tagged
+
+Result: ONE identifier across all channels = partnerId
+```
+
+**No identity stitching needed because:**
+- You already have a deterministic single ID (`partnerId`)
+- No need to link email ↔ cookie ↔ mobile device ID (they all already have `partnerId`)
+- Identity resolution is ALREADY done in your systems before data reaches AEP
+
+**With Federated Audience Composition:**
+- You query BigQuery using `partnerId`
+- AEP gets customer IDs (partnerId values)
+- AEP activates these IDs to destinations
+- **Identity Graph not needed at all**
+
+**When Identity Stitching IS Needed:**
+
+**Scenario 2: Multiple Disparate Identifiers**
+```
+E-commerce Architecture (No Single ID):
+  Web visit → Anonymous cookie: abc123
+  User fills form → Email: john@example.com (but still cookie abc123)
+  Mobile app download → Device ID: xyz789 (AEP doesn't know this is same person as cookie abc123)
+  Call center → Phone: +1-555-0100 (AEP doesn't know this is john@example.com)
+
+Problem: 4 identifiers, no linkage = AEP sees 4 different people
+Solution: AEP Identity Graph links abc123 ↔ john@example.com ↔ xyz789 ↔ +1-555-0100
+```
+
+**Your Situation (Minimal Profile with partnerId + Email):**
+
+If you send to AEP:
+```json
+{
+  "partnerId": "12345",
+  "email": "john@example.com",
+  "leadScore": 85,
+  "lastInteractionDate": "2025-10-21"
+}
+```
+
+**Identity linking scenarios:**
+
+**Case A: You only use partnerId for activation**
+- Destinations receive: `partnerId=12345`
+- No email linking needed
+- **Identity Graph: NOT NEEDED**
+
+**Case B: You want to activate with email to some destinations**
+- Destinations receive: `email=john@example.com` OR `partnerId=12345` (depending on destination)
+- AEP needs to know: partnerId 12345 = john@example.com (but you already provided this in same record!)
+- **Identity Graph: NOT NEEDED** (identity map in record is sufficient)
+
+**Case C: You have anonymous web visitors that later become known**
+- Web visitor → Cookie abc123 (no partnerId yet)
+- User logs in → Cookie abc123 + partnerId 12345 linked
+- Now you want past anonymous behavior (abc123 events) attributed to partnerId 12345
+- **Identity Graph: NEEDED** (to link cookie → partnerId)
+
+**Recommendation for Your Use Case:**
+
+**If ALL data already has partnerId:**
+- ✅ Skip AEP Identity Graph
+- ✅ Use partnerId as primary identifier everywhere
+- ✅ With Federated Audience Composition: No identity stitching in AEP needed
+- ✅ Simpler architecture, less cost
+
+**If you have anonymous visitors (web/mobile) before they identify:**
+- ⚠️ You might need Identity Graph to link: Anonymous cookie → partnerId (after login)
+- But this only matters if you care about pre-login behavior attribution
+
+**Bottom Line:**
+- Your use of a single `partnerId` across systems is IDEAL for zero-copy architecture
+- You've already solved identity resolution in your systems (before AEP)
+- With Federated Audience Composition, AEP just queries BigQuery using `partnerId` - no identity graph needed
+- **Save money**: Don't pay for Identity Graph features you don't need
+
+---
+
+#### Q31: What are real-world use cases for edge segmentation?
+
+**See also:** [Edge Segmentation - Deep Dive](#edge-segmentation---deep-dive)
+
+**Concrete Use Cases:**
+
+**1. E-Commerce Homepage Personalization**
+
+**Scenario:**
+- Customer visits homepage
+- Edge segment evaluated in <30ms: "Is this customer a VIP?"
+- If YES → Show: "Welcome back, VIP! Your exclusive 20% discount code: VIP2025"
+- If NO → Show: Generic "Welcome! Browse our latest products"
+
+**Why edge matters:**
+- Homepage loads in 1-2 seconds total
+- Can't wait 200-500ms for AEP Profile Store query (bad UX, slow page load)
+- Edge responds in <30ms → seamless experience
+
+**Business Impact:** Higher VIP engagement, increased conversion
+
+---
+
+**2. Adobe Target A/B Testing with Segmentation**
+
+**Scenario:**
+- Running A/B test: Two different product recommendation algorithms
+- Want Test A shown to "High-Value Customers" and Test B to everyone else
+- Adobe Target needs to decide in <50ms which variant to show
+
+**Without Edge:**
+- Target queries AEP Profile Store → 100-300ms delay
+- Under high traffic (10K concurrent users), queries can time out
+- A/B test becomes unreliable
+
+**With Edge:**
+- Target queries edge server → <30ms response
+- Scales to millions of concurrent visitors
+- Reliable A/B test results
+
+**Business Impact:** Accurate experimentation, reliable at scale
+
+---
+
+**3. Mobile Banking App - In-Session Personalization**
+
+**Scenario:**
+- User opens banking app
+- Edge evaluates: "Is this a new customer (< 30 days)?"
+- If YES → Show onboarding checklist: "Set up direct deposit", "Link external accounts"
+- If NO → Show dashboard with account balances and recent transactions
+
+**Why edge matters:**
+- Mobile app loads in 1-2 seconds
+- Can't afford 200-500ms delay to query AEP Profile Store (users perceive as "slow app")
+- Edge responds in <30ms → app feels instant
+
+**Business Impact:** Better mobile UX, higher retention
+
+---
+
+**4. SaaS Product - Feature Gate Based on Customer Tier**
+
+**Scenario:**
+- SaaS product has Free, Pro, Enterprise tiers
+- Want to show/hide features in real-time based on customer tier
+- Edge segment: "Is this customer Enterprise tier?"
+- If YES → Enable advanced analytics dashboard
+- If NO → Show upgrade prompt
+
+**Why edge matters:**
+- Feature gates evaluated on every page load
+- Hundreds of evaluations per user session
+- Edge caching prevents repeated API calls to AEP Profile Store
+
+**Business Impact:** Fast feature gating, lower API costs
+
+---
+
+**5. Content Paywall - Subscriber vs Non-Subscriber**
+
+**Scenario:**
+- News website with paywall
+- Edge segment: "Is this user an active subscriber?"
+- If YES → Show full article
+- If NO → Show first 3 paragraphs + paywall
+
+**Why edge matters:**
+- Decision must happen BEFORE article content loads (can't show full article then hide it)
+- Needs <30ms latency to avoid page load delays
+- Edge decision happens server-side (can't be bypassed by client-side tricks)
+
+**Business Impact:** Effective paywall, fast page loads
+
+---
+
+**When Edge Segmentation is NOT Needed:**
+
+❌ **Email Campaigns**
+- Email sent once per day/week
+- No one cares if segment evaluation takes 5 minutes or 24 hours
+- Use batch segmentation instead (cheaper)
+
+❌ **Nightly Data Exports**
+- Exporting customer lists to data warehouse
+- Latency doesn't matter
+- Use batch segmentation
+
+❌ **Monthly Reports**
+- Segment for "Customers acquired in Q4"
+- Evaluated once, results don't change in real-time
+- Batch segmentation
+
+**Key Criteria for Edge Segmentation:**
+1. ✅ Latency requirement <100ms (ideally <50ms)
+2. ✅ User-facing decision (web personalization, mobile app, A/B tests)
+3. ✅ Evaluated frequently (many times per session)
+4. ✅ Simple segment logic (no complex historical lookback windows)
+
+---
+
+#### Q32: Can we truly not achieve real-time lookup with Federated Audience Composition?
+
+**Short Answer:** Correct, you CANNOT achieve real-time (<100ms) profile lookups with FAC.
+
+**Technical Reality:**
+
+**What "Real-Time Lookup" Means:**
+- User visits website → Website queries AEP: "Who is this customer? What's their VIP status?"
+- AEP response time: <100 milliseconds (ideally <50ms)
+- Personalize page content based on response
+
+**Why FAC Cannot Achieve This:**
+
+**Latency Breakdown for FAC Query:**
+
+```
+User visits website → AEP receives request
+  ↓ (Network latency: 10-50ms)
+AEP receives request → Federate query to BigQuery
+  ↓ (Network latency to BigQuery: 20-100ms)
+BigQuery receives query → Execute query
+  ↓ (Query execution: 1-10 seconds, even for indexed queries)
+BigQuery returns results → AEP processes
+  ↓ (Network latency back to AEP: 20-100ms)
+AEP sends response to website
+  ↓ (Network latency to user: 10-50ms)
+Total latency: 1-12 seconds (far from <100ms requirement)
+```
+
+**Even Best-Case Scenario:**
+- Highly optimized BigQuery query (partition pruning, clustering)
+- Pre-computed materialized view
+- Low network latency
+- **Still**: 500ms - 2 seconds (5-20x slower than <100ms requirement)
+
+**Why BigQuery is Inherently Too Slow:**
+1. **Query Planning Overhead**: BigQuery must parse SQL, optimize query plan, allocate slots (100-500ms)
+2. **Network Round-Trips**: Data travels: Website → AEP (US-East) → BigQuery (US-Central) → AEP → Website
+3. **Storage Architecture**: BigQuery reads from columnar storage (Parquet files in GCS), not in-memory cache
+4. **No Sub-Second Guarantees**: BigQuery is optimized for analytical queries (minutes scale), not operational lookups (milliseconds scale)
+
+**What AEP's Profile Store Provides (Real-Time Lookups):**
+
+```
+User visits website → AEP Profile Store lookup
+  ↓ (In-memory cache hit: <10ms)
+AEP returns profile data → Website
+  ↓ (Network latency: 10-50ms)
+Total latency: 20-60ms ✅ Meets <100ms requirement
+```
+
+**Profile Store Architecture:**
+- Distributed in-memory cache (similar to Redis)
+- Hash-based lookup (O(1) complexity)
+- Co-located with edge servers (low network latency)
+- Optimized for <100ms p99 latency
+
+**Comparison Table:**
+
+| Metric | AEP Profile Store (Real-Time) | FAC (BigQuery Federated) |
+|--------|-------------------------------|--------------------------|
+| **Typical Latency** | 20-100ms | 1-10 seconds |
+| **Best-Case Latency** | <10ms (cache hit) | 500ms (optimized query) |
+| **Worst-Case Latency** | 200ms (cache miss) | 30-60 seconds (complex query) |
+| **Use Case** | Web personalization, Adobe Target, mobile app | Batch audience creation, daily/hourly refresh |
+| **Scalability** | Millions of requests/second | Thousands of queries/minute (BigQuery concurrency limits) |
+| **Cost per Lookup** | Included in AEP license | $0.01-$0.10 per query (BigQuery slot time) |
+
+**Real-World Example:**
+
+**Scenario: VIP Homepage Banner**
+- Requirement: Show "Welcome back, VIP!" banner if customer is VIP tier
+- Page load budget: <2 seconds total (including profile lookup)
+
+**Option A: AEP Profile Store (Real-Time)**
+```
+Page loads → AEP lookup (30ms) → Banner shows "Welcome back, VIP!"
+User experience: ✅ Seamless (banner appears immediately)
+```
+
+**Option B: FAC (BigQuery Federated)**
+```
+Page loads → FAC query to BigQuery (2-5 seconds) → Banner shows
+User experience: ❌ BAD (page loads, then banner appears 3 seconds later = jarring UX)
+```
+
+**When FAC Latency is Acceptable:**
+
+✅ **Batch Audience Creation**
+- Build audience: "VIP customers who purchased in last 30 days"
+- Evaluated once per day (overnight batch job)
+- 5-minute BigQuery query is FINE (no one waiting in real-time)
+
+✅ **Scheduled Email Campaigns**
+- Daily email to "Hot Leads"
+- Audience evaluated at 6 AM, email sent at 9 AM
+- 10-minute query runtime is acceptable
+
+✅ **Hourly Audience Refresh**
+- Audience updated every hour for Google Ads targeting
+- 2-minute BigQuery query is fine
+
+❌ **Web Personalization**
+- User waiting for page to load
+- 2-second delay is unacceptable UX
+- Must use AEP Profile Store, not FAC
+
+**Workarounds (Hybrid Approach - Option 3):**
+
+**Solution: Use FAC for batch + Profile Store for real-time**
+
+```
+99% of customers (general population):
+  → Federated Audience Composition (batch, daily refresh)
+  → Use cases: Email campaigns, Google Ads targeting
+
+1% of customers (VIPs, high-value, active leads):
+  → Stream to AEP Profile Store (real-time)
+  → Use cases: Website personalization, Adobe Target A/B tests, real-time alerts
+```
+
+**Example:**
+- 1 million total customers
+- 10,000 VIPs (1%)
+- VIP profiles streamed to AEP → Real-time homepage personalization
+- Other 990,000 customers → FAC only → Batch campaigns
+
+**Result:**
+- ✅ Real-time personalization for VIPs (Profile Store)
+- ✅ Cost savings for general population (FAC, no profile storage)
+- ✅ Best of both worlds
+
+**Bottom Line:**
+- FAC is for **batch** use cases (daily/hourly audience refresh)
+- Real-time lookups (<100ms) require **AEP Profile Store**
+- If you need both: Use **Hybrid Approach (Option 3)**
+
+**Physics Can't Be Cheated:**
+- No amount of optimization makes BigQuery queries <100ms for operational lookups
+- BigQuery is an analytical database, not an operational datastore
+- For sub-100ms latency: Must use in-memory cache (AEP Profile Store, Redis, Memcached, etc.)
+
 ---
 
 ## About This Document
