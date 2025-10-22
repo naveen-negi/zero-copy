@@ -1755,6 +1755,437 @@ Destination uses IDs to match users + enrichment for personalization
 
 ---
 
+#### Q34: If I can't use FAC (security blocks BigQuery exposure), is there a push-based way to minimize data storage in AEP?
+
+**Short Answer:** Yes! If FAC is blocked, you have push-based options that significantly reduce (but don't eliminate) data storage in AEP.
+
+---
+
+### The Problem: FAC Blocked by Security
+
+**Scenario:**
+- Your security team blocks exposing BigQuery to external systems (AEP)
+- Reasons: BaFin compliance, data residency rules, VPN restrictions, risk assessment
+- **Federated Audience Composition (Option 1) is NOT possible**
+- You need alternative zero-copy or minimal-copy patterns
+
+**Question:** Can I push data to AEP but minimize storage?
+
+---
+
+### Push-Based Minimal-Storage Options
+
+When FAC is blocked, you have 3 alternatives:
+
+#### **Option A: AEP Event Forwarding** (Streaming, True Pass-Through)
+
+**How it works:**
+- Push events from BigQuery → **AEP Edge Network** (not Profile Store)
+- Configure **Event Forwarding** rules to route to destinations
+- Data flows through AEP **transiently** (not persisted)
+- AEP acts as intelligent router/orchestrator
+
+**Architecture:**
+```
+BigQuery → Cloud Run → AEP Edge Network → Event Forwarding Rules → Destinations
+                            ↓
+                   (No Profile Store)
+```
+
+**What gets stored in AEP:**
+- ❌ **Zero profiles** stored
+- ✅ Event forwarding rules/configuration only
+- ✅ TRUE pass-through architecture
+
+**Data flow example:**
+```javascript
+// Cloud Run service pushes events to AEP Edge
+{
+  "events": [{
+    "xdm": {
+      "eventType": "lead.scored",
+      "identityMap": {
+        "email": [{"id": "john@example.com"}]
+      },
+      "leadScore": 92,
+      "timestamp": "2025-10-22T10:00:00Z"
+    }
+  }],
+  "meta": {
+    "streamId": "edge-forwarding-stream"
+  }
+}
+
+// AEP Edge Network receives event → Forwards to destinations without storing
+```
+
+**Pros:**
+- ✅ True zero-copy (data doesn't persist in AEP)
+- ✅ Push-based (security-friendly)
+- ✅ Real-time capable (<1 sec latency)
+- ✅ Uses AEP's destination connectors
+
+**Cons:**
+- ❌ **No segmentation** - you must build audiences in BigQuery first
+- ❌ **No AEP UI** - can't use Segment Builder
+- ❌ Event-level only (not batch-friendly)
+- ❌ More expensive (streaming costs)
+- ❌ Limited to streaming use cases
+
+**When to use:**
+- ✅ Real-time activation needed
+- ✅ You're okay building segments in BigQuery
+- ✅ Just need AEP as destination router
+- ❌ NOT good for: Batch campaigns, complex segmentation in AEP
+
+**Cost:** ~$200K-$400K/year (RT-CDP + Edge Network + streaming API calls)
+
+---
+
+#### **Option B: External Audiences with Automated Refresh** (Batch, Minimal Storage)
+
+**How it works:**
+- Build audiences in BigQuery
+- Push **IDs only** via External Audiences API
+- AEP stores IDs for **30-day TTL** (minimal footprint)
+- Automate refresh to keep current
+
+**Architecture:**
+```
+BigQuery Scheduled Query → Cloud Scheduler → Cloud Run → AEP External Audiences API
+                                                              ↓
+                                                    (Stores IDs only, 30-day TTL)
+```
+
+**What gets stored in AEP:**
+- ✅ Customer IDs only (partnerId, email, etc.)
+- ✅ Optional: 5-10 enrichment fields (firstName, leadScore, etc.)
+- ❌ NO full profiles (no event history, no 100+ fields)
+- ✅ 30-day TTL (auto-expires, must refresh)
+
+**Data footprint example:**
+```
+Traditional AEP (Full Profiles):
+  1M customers × 50 KB per profile = 50 GB
+
+External Audiences (IDs only):
+  1M customers × 36 bytes (ID) = 36 MB
+
+External Audiences (IDs + 10 enrichment fields):
+  1M customers × 200 bytes = 200 MB
+
+Reduction: 99.6% - 99.93%
+```
+
+**Implementation example:**
+
+```python
+# cloud-run-external-audiences/main.py
+import requests
+from google.cloud import bigquery
+import os
+
+AEP_API_ENDPOINT = "https://platform.adobe.io/data/core/ups/segment/jobs"
+AEP_ACCESS_TOKEN = os.getenv("AEP_ACCESS_TOKEN")
+AEP_CLIENT_ID = os.getenv("AEP_CLIENT_ID")
+AEP_IMS_ORG_ID = os.getenv("AEP_IMS_ORG_ID")
+
+def push_audience_to_aep(request):
+    """Push audience IDs from BigQuery to AEP External Audiences."""
+
+    # Query BigQuery for audience
+    client = bigquery.Client()
+    query = """
+    SELECT
+        customer_id,
+        email,
+        first_name,
+        last_name,
+        lead_score,
+        product_interest
+    FROM `banking-project.marketing_analytics.customer_profiles`
+    WHERE
+        lead_classification = 'HOT'
+        AND consent_marketing = TRUE
+        AND last_interaction_date > DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+    """
+
+    results = client.query(query).result()
+
+    # Transform to AEP External Audience format
+    members = []
+    for row in results:
+        members.append({
+            "identities": {
+                "customer_id": row.customer_id,
+                "email": row.email
+            },
+            "attributes": {
+                "firstName": row.first_name,
+                "lastName": row.last_name,
+                "leadScore": row.lead_score,
+                "productInterest": row.product_interest
+            }
+        })
+
+    # Push to AEP External Audiences API
+    headers = {
+        "Authorization": f"Bearer {AEP_ACCESS_TOKEN}",
+        "x-api-key": AEP_CLIENT_ID,
+        "x-gw-ims-org-id": AEP_IMS_ORG_ID,
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "name": "Hot Leads - BigQuery",
+        "description": "High propensity leads from BigQuery lead scoring",
+        "identityNamespace": "customer_id",
+        "members": members,
+        "ttl": 30  # 30-day expiration
+    }
+
+    response = requests.post(AEP_API_ENDPOINT, headers=headers, json=payload)
+
+    return {
+        "status": "success",
+        "audience_size": len(members),
+        "data_transferred_mb": len(str(members)) / 1024 / 1024
+    }
+```
+
+**Cloud Scheduler configuration:**
+```bash
+# Run daily at 6 AM
+gcloud scheduler jobs create http push-hot-leads-to-aep \
+  --schedule="0 6 * * *" \
+  --uri="https://external-audiences-service-xyz.run.app/push-audience" \
+  --http-method=POST \
+  --location=us-central1 \
+  --time-zone="America/Los_Angeles"
+```
+
+**Pros:**
+- ✅ Push-based (security-friendly)
+- ✅ Minimal storage (IDs + enrichment only, 30-day TTL)
+- ✅ Can automate with Cloud Scheduler
+- ✅ Uses AEP's activation/destinations
+- ✅ 99.6-99.93% data reduction vs full profiles
+- ✅ Can include enrichment fields for personalization
+
+**Cons:**
+- ❌ No AEP segmentation (must build in BigQuery)
+- ❌ 30-day TTL requires refresh automation
+- ❌ Still stores IDs (not pure zero-copy like FAC)
+- ❌ Limited to batch use cases (daily/hourly refresh)
+
+**When to use:**
+- ✅ Batch campaigns (daily/weekly) sufficient
+- ✅ Can build audiences in BigQuery
+- ✅ Want to use AEP destinations without full profile storage
+- ✅ Need enrichment fields for personalization
+
+**Cost:** ~$112K-$292K/year (vs $500K+ for full profiles)
+
+---
+
+#### **Option C: Reverse ETL** (Bypass AEP Entirely)
+
+**How it works:**
+- Use Reverse ETL tools (Census, Hightouch, Segment)
+- BigQuery → Reverse ETL → Marketing destinations **directly**
+- Skip AEP completely
+
+**Architecture:**
+```
+BigQuery → Census/Hightouch → Google Ads
+                            → Braze
+                            → Salesforce Marketing Cloud
+                            → Iterable
+                            → 100+ destinations
+```
+
+**What gets stored in AEP:**
+- ❌ **Nothing** - you don't use AEP at all
+
+**Pros:**
+- ✅ True zero-copy (no AEP storage)
+- ✅ Push-based (security-friendly)
+- ✅ Direct BigQuery → Destination sync
+- ✅ Often cheaper than AEP ($50K-$150K/year vs $200K-$700K)
+- ✅ No vendor lock-in
+
+**Cons:**
+- ❌ **Doesn't use AEP at all** - loses AEP investment
+- ❌ No AEP governance/audit trail
+- ❌ Need to manage destination connectors separately
+- ❌ No unified activation platform
+
+**When to use:**
+- ✅ If you don't need AEP's governance/UI
+- ✅ Want simplest zero-copy approach
+- ✅ Okay managing destination connectors yourself
+- ❌ NOT viable if: You've already invested in AEP license
+
+**Cost:**
+- Census: ~$50K-$150K/year
+- Hightouch: ~$60K-$180K/year
+- (vs AEP: $200K-$700K/year)
+
+---
+
+### Decision Tree: Which Option When FAC is Blocked?
+
+```
+Security blocks FAC (BigQuery exposure)
+↓
+Do you need AEP's governance/UI/audit trail?
+│
+├─ NO → Option C (Reverse ETL, bypass AEP)
+│         • True zero-copy
+│         • Direct BigQuery → Destinations
+│         • $50K-$150K/year
+│         • Simplest architecture
+│
+└─ YES → Do you need real-time (<5 min) activation?
+          │
+          ├─ YES (Real-Time) → Option A (Event Forwarding)
+          │                     • Push events to AEP Edge
+          │                     • True pass-through (no storage)
+          │                     • <1 sec latency
+          │                     • Must build segments in BigQuery
+          │                     • $200K-$400K/year
+          │
+          └─ NO (Batch OK) → Option B (External Audiences + Automation)
+                              • Push IDs only (30-day TTL)
+                              • 99.6-99.93% data reduction
+                              • Daily/hourly refresh
+                              • Uses AEP destinations
+                              • $112K-$292K/year
+```
+
+---
+
+### Comparison Table
+
+| Aspect | Option A (Event Forwarding) | Option B (External Audiences) | Option C (Reverse ETL) | FAC (If Allowed) |
+|--------|----------------------------|-------------------------------|----------------------|------------------|
+| **Data stored in AEP** | None (pass-through) | IDs only (30-day TTL) | None (not used) | None (queries in-place) |
+| **Data reduction** | 100% (zero storage) | 99.6-99.93% | 100% (N/A) | 99.96% |
+| **Security constraint** | ✅ Push-based | ✅ Push-based | ✅ Push-based | ❌ Requires DB exposure |
+| **Real-time capability** | ✅ <1 sec | ❌ Batch only | ❌ Batch only | ❌ Batch only |
+| **AEP Segmentation** | ❌ Must do in BigQuery | ❌ Must do in BigQuery | ❌ Must do in BigQuery | ✅ Yes (UI) |
+| **AEP Destinations** | ✅ Yes | ✅ Yes | ❌ No (direct integrations) | ✅ Yes |
+| **Enrichment fields** | ✅ Yes (in events) | ✅ Yes (5-10 fields) | ✅ Yes | ✅ Yes |
+| **Cost ($/year)** | $200K-$400K | $112K-$292K | $50K-$150K | $247K-$701K |
+| **Complexity** | High | Medium | Low | Low |
+| **When to use** | Real-time + security constraint | Batch + minimal AEP storage | Skip AEP entirely | Batch + FAC approved |
+
+---
+
+### Real-World Example: External Audiences Automation
+
+**Scenario:** Banking company, security blocks FAC, needs daily hot leads activation to Google Ads and Marketo.
+
+**Solution: Option B (External Audiences + Automation)**
+
+**Step 1: BigQuery Scheduled Query**
+```sql
+-- Runs daily at 5 AM
+CREATE OR REPLACE TABLE `banking-project.aep_audiences.hot_leads` AS
+SELECT
+  customer_id,
+  email,
+  first_name,
+  last_name,
+  lead_score,
+  product_interest
+FROM `banking-project.marketing_analytics.customer_profiles`
+WHERE
+  lead_classification = 'HOT'
+  AND consent_marketing = TRUE
+  AND last_interaction_date > DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY);
+```
+
+**Step 2: Cloud Run Service (Automated)**
+```python
+# Triggered by Cloud Scheduler at 6 AM (after BigQuery query completes)
+def push_to_aep():
+    # Read from BigQuery table
+    query = "SELECT * FROM `banking-project.aep_audiences.hot_leads`"
+    results = bigquery.Client().query(query).result()
+
+    # Transform to AEP format (50K rows = ~10 MB)
+    members = [...]
+
+    # Push to AEP External Audiences API
+    response = aep_client.create_external_audience(
+        name="Hot Leads - Daily Refresh",
+        members=members,
+        ttl=30
+    )
+
+    print(f"Pushed {len(members)} profiles, {10} MB transferred")
+    # Output: Pushed 50,000 profiles, 10 MB transferred
+    # (vs 2.5 GB if full profiles were stored)
+```
+
+**Step 3: AEP Activation**
+- Audience "Hot Leads - Daily Refresh" available in AEP
+- Marketing team activates to Google Ads, Marketo
+- 50K IDs + enrichment fields sent to destinations
+
+**Result:**
+- ✅ Security happy (push-based, no BigQuery exposure)
+- ✅ 99.6% data reduction (10 MB vs 2.5 GB)
+- ✅ Daily refresh automation
+- ✅ Uses AEP destinations (Google Ads, Marketo)
+- ✅ $150K/year (vs $500K for full profiles)
+
+---
+
+### Key Takeaways
+
+**1. FAC Blocked ≠ No Zero-Copy Options**
+- You have 3 push-based alternatives when FAC is security-blocked
+- Each has trade-offs (storage, cost, complexity, features)
+
+**2. Storage Comparison:**
+| Pattern | Data in AEP | Reduction |
+|---------|------------|-----------|
+| Full Profiles | 50 GB (1M × 50KB) | 0% baseline |
+| **External Audiences (IDs only)** | 36 MB (1M × 36 bytes) | **99.93%** |
+| **External Audiences (IDs + 10 fields)** | 200 MB (1M × 200 bytes) | **99.6%** |
+| **Event Forwarding** | 0 MB (pass-through) | **100%** |
+| **Reverse ETL** | 0 MB (not using AEP) | **100%** |
+
+**3. Recommended Approach:**
+```
+Security blocks FAC → Start with Option B (External Audiences)
+  ↓
+Proves value with batch campaigns (80% of use cases)
+  ↓
+If real-time needed → Add Option A (Event Forwarding) for 1-5% high-value cases
+  ↓
+Meanwhile → Lobby security team for FAC approval (best long-term solution)
+```
+
+**4. Lobbying for FAC Approval:**
+- External Audiences is good for POC, not ideal long-term
+- FAC is Adobe's official zero-copy solution (better supported)
+- Show security:
+  - Read-only access (bigquery.dataViewer role)
+  - VPN/IP allowlist controls
+  - Audit logs for all queries
+  - No data egress (IDs only returned)
+
+**5. Best Practice:**
+- **Use External Audiences for POC** (prove value quickly)
+- **Lobby for FAC approval** (best zero-copy solution)
+- **Add Event Forwarding if real-time needed** (small % of cases)
+- **Consider Reverse ETL if AEP isn't working** (honest assessment)
+
+---
+
 ### Costs & Licensing
 
 #### Q25: How is AEP priced? (Profiles, API calls, storage?)
