@@ -34,6 +34,13 @@ This directory contains PlantUML diagrams for the three architecture options and
      - Customer AI/Attribution AI requirements
      - Cost vs simplicity preferences
 
+5. **[decision-tree-aep-options.puml](decision-tree-aep-options.puml)** ⭐ NEW
+   - **Comprehensive decision tree for banking/regulated environments**
+   - **Starts with critical security constraint**: Can you expose BigQuery to AEP?
+   - Includes all 4 options (FAC, Computed Attributes, Hybrid, External Audiences)
+   - Color-coded decision paths
+   - **Interactive D3.js version**: [d3-diagrams/decision-tree-aep-options.html](d3-diagrams/decision-tree-aep-options.html)
+
 ## How to View Diagrams
 
 ### ⭐ Recommended: D3.js Interactive Diagrams (EASIEST)
@@ -103,8 +110,15 @@ After rendering PlantUML files, the following will be created:
 - `option2-computed-attributes.png` (or .svg)
 - `option3-hybrid-selective.png` (or .svg)
 - `decision-flow.png` (or .svg)
+- `decision-tree-aep-options.png` (or .svg) ⭐ NEW
 
 **Note:** `.png` and `.svg` files are gitignored to avoid binary bloat. Render them locally as needed.
+
+**To generate the decision tree visuals:**
+```bash
+plantuml -tsvg decision-tree-aep-options.puml
+plantuml -tpng decision-tree-aep-options.puml
+```
 
 ## Integration with Documents
 
