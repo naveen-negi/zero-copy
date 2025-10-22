@@ -48,52 +48,28 @@ partition "CRITICAL SECURITY CHECK" {
 
       else (YES - Real-Time)
 
-        if (What % need\nreal-time?) then (<10%)
+        if (Can identify small subset\nfor real-time (<10%)?) then (YES - Selective)
 
           #DDA0DD:OPTION 3 (HYBRID)
           ====
           **Hybrid Selective Pattern**
           ====
-          • 99% Federated (batch)
-          • 1% Streaming (real-time)
+          • Federated for batch (99%)
+          • Streaming for real-time (1%)
+          • Best economics + real-time
           • $286K-$693K/year;
 
           stop
 
-        elseif (10-50%) then
-
-          if (Prefer?) then (Cost)
-
-            #DDA0DD:OPTION 3 (HYBRID)
-            ====
-            **Hybrid Selective**
-            ====
-            • Optimize costs
-            • $286K-$693K/year;
-
-            stop
-
-          else (Simplicity)
-
-            #87CEEB:OPTION 2
-            ====
-            **Computed Attributes**
-            ====
-            • Single architecture
-            • $248K-$858K/year;
-
-            stop
-
-          endif
-
-        else (>50%)
+        else (NO - All need real-time)
 
           #87CEEB:OPTION 2
           ====
           **Computed Attributes**
           ====
-          • Stream to AEP
+          • Stream all to AEP
           • 2-10 min latency
+          • Full AEP features
           • $248K-$858K/year;
 
           stop

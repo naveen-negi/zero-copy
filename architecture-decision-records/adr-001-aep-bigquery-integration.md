@@ -896,6 +896,470 @@ WHERE
 
 ---
 
+# Option 4: External Audiences (Push-Based, Minimal Storage)
+
+## Status: POC/Testing Only (NOT for Long-Term Production)
+
+## Decision
+
+Use AEP's External Audiences API to push pre-built audience IDs from BigQuery to AEP with minimal storage (IDs + enrichment fields only, 30-day TTL). This is a push-based alternative when Federated Audience Composition is blocked by security.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  GOOGLE CLOUD PLATFORM (GCP)                                    │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  BigQuery: Build Audiences (Scheduled Query)              │ │
+│  │  • Query runs daily at 5:00 AM                            │ │
+│  │  • Computes "Hot Leads" segment in BigQuery               │ │
+│  │  • Results stored in staging table                        │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                           ↓                                      │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  Cloud Scheduler → Cloud Run Service                      │ │
+│  │  • Triggered daily at 6:00 AM                             │ │
+│  │  • Reads audience from BigQuery                           │ │
+│  │  • Calls AEP External Audiences API                       │ │
+│  │  • Pushes IDs + enrichment fields                         │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                           ↓ HTTPS POST                           │
+└───────────────────────────┼──────────────────────────────────────┘
+                            │
+┌───────────────────────────┼──────────────────────────────────────┐
+│  ADOBE EXPERIENCE PLATFORM│                                      │
+│                           ↓                                      │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  External Audiences API (/core/ais/external-audience/)    │ │
+│  │  • Receives audience IDs + enrichment                     │ │
+│  │  • Max 25 columns (1 ID + 24 enrichment fields)           │ │
+│  │  • Max 1 GB per upload                                    │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                           ↓                                      │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  External Audience Storage (MINIMAL)                      │ │
+│  │  • "Hot Leads": 50K IDs + 10 enrichment fields           │ │
+│  │  • Storage: ~10 MB (vs 2.5 GB full profiles)             │ │
+│  │  • 30-day TTL (auto-expires, requires refresh)           │ │
+│  │  • ⚠️ Enrichment NOT usable in segmentation              │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                           ↓                                      │
+│  Activate to: Marketo, Google Ads, Meta Ads                     │
+│  (Can use enrichment fields for personalization only)           │
+└──────────────────────────────────────────────────────────────────┘
+
+Data Storage: 36 MB - 200 MB (99.6-99.93% reduction vs full profiles)
+Push-Based: ✅ Security-friendly (no BigQuery exposure)
+```
+
+### GCP Implementation Details
+
+#### Step 1: Create Audience Staging Table
+
+```sql
+-- Scheduled query runs daily at 5:00 AM
+CREATE OR REPLACE TABLE `banking-project.aep_audiences.hot_leads_staging`
+AS
+SELECT
+  customer_id,                  -- Required: Primary identity
+  email,                        -- Enrichment field 1
+  first_name,                   -- Enrichment field 2
+  last_name,                    -- Enrichment field 3
+  lead_score,                   -- Enrichment field 4
+  lead_classification,          -- Enrichment field 5
+  product_interest,             -- Enrichment field 6
+  engagement_index,             -- Enrichment field 7
+  total_lifetime_value,         -- Enrichment field 8
+  last_interaction_date         -- Enrichment field 9
+  -- Max 24 enrichment fields allowed
+FROM `banking-project.marketing_analytics.customer_profiles`
+WHERE
+  lead_classification = 'hot'
+  AND consent_marketing = TRUE
+  AND last_interaction_date > DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+LIMIT 1000000;  -- Max rows per upload (practical limit)
+```
+
+#### Step 2: Create Cloud Run Service for API Push
+
+**app.py**:
+```python
+import os
+import requests
+from google.cloud import bigquery
+from typing import List, Dict
+
+# AEP Configuration
+AEP_API_BASE = "https://platform.adobe.io/data/core/ais"
+AEP_ACCESS_TOKEN = os.environ['AEP_ACCESS_TOKEN']
+AEP_CLIENT_ID = os.environ['AEP_CLIENT_ID']
+AEP_IMS_ORG_ID = os.environ['AEP_IMS_ORG_ID']
+AEP_SANDBOX = os.environ.get('AEP_SANDBOX', 'prod')
+
+def create_external_audience(audience_name: str, description: str) -> str:
+    """
+    Create external audience definition in AEP.
+    Returns: audience_id
+    """
+    url = f"{AEP_API_BASE}/external-audience/"
+    headers = {
+        "Authorization": f"Bearer {AEP_ACCESS_TOKEN}",
+        "x-api-key": AEP_CLIENT_ID,
+        "x-gw-ims-org-id": AEP_IMS_ORG_ID,
+        "x-sandbox-name": AEP_SANDBOX,
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "audienceName": audience_name,
+        "description": description,
+        "audienceType": "people",
+        "identityType": "customer_id",
+        "ttl": 30,  # 30-day expiration
+        "enrichmentAttributes": [
+            {"name": "email", "type": "string"},
+            {"name": "first_name", "type": "string"},
+            {"name": "last_name", "type": "string"},
+            {"name": "lead_score", "type": "number"},
+            {"name": "lead_classification", "type": "string"},
+            {"name": "product_interest", "type": "string"},
+            {"name": "engagement_index", "type": "number"},
+            {"name": "total_lifetime_value", "type": "number"},
+            {"name": "last_interaction_date", "type": "date"}
+        ]
+    }
+
+    response = requests.post(url, json=payload, headers=headers)
+    response.raise_for_status()
+
+    operation_data = response.json()
+    operation_id = operation_data.get("operationId")
+
+    # Poll for completion
+    status_url = f"{AEP_API_BASE}/external-audiences/operations/{operation_id}"
+    import time
+    for _ in range(30):  # Max 5 minutes
+        status_response = requests.get(status_url, headers=headers)
+        status_data = status_response.json()
+
+        if status_data.get("status") == "SUCCESS":
+            return status_data.get("audienceId")
+        elif status_data.get("status") == "FAILED":
+            raise Exception(f"Audience creation failed: {status_data}")
+
+        time.sleep(10)
+
+    raise Exception("Audience creation timeout")
+
+
+def generate_csv_export(audience_id: str, gcs_path: str):
+    """Export BigQuery audience to GCS as CSV."""
+    client = bigquery.Client()
+
+    # Export to GCS (CSV format, max 1GB)
+    destination_uri = f"gs://{gcs_path}"
+    table_ref = "banking-project.aep_audiences.hot_leads_staging"
+
+    extract_job = client.extract_table(
+        table_ref,
+        destination_uri,
+        location="EU",
+        job_config=bigquery.ExtractJobConfig(
+            destination_format=bigquery.DestinationFormat.CSV,
+            print_header=True
+        )
+    )
+    extract_job.result()  # Wait for completion
+    return destination_uri
+
+
+def trigger_ingestion(audience_id: str, csv_path: str) -> str:
+    """
+    Trigger data ingestion for external audience.
+    Returns: run_id
+    """
+    url = f"{AEP_API_BASE}/external-audience/{audience_id}/runs"
+    headers = {
+        "Authorization": f"Bearer {AEP_ACCESS_TOKEN}",
+        "x-api-key": AEP_CLIENT_ID,
+        "x-gw-ims-org-id": AEP_IMS_ORG_ID,
+        "x-sandbox-name": AEP_SANDBOX,
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "filePath": csv_path,
+        "format": "csv"
+    }
+
+    response = requests.post(url, json=payload, headers=headers)
+    response.raise_for_status()
+
+    return response.json().get("runId")
+
+
+def check_ingestion_status(audience_id: str, run_id: str) -> Dict:
+    """Check ingestion job status."""
+    url = f"{AEP_API_BASE}/external-audience/{audience_id}/runs/{run_id}"
+    headers = {
+        "Authorization": f"Bearer {AEP_ACCESS_TOKEN}",
+        "x-api-key": AEP_CLIENT_ID,
+        "x-gw-ims-org-id": AEP_IMS_ORG_ID,
+        "x-sandbox-name": AEP_SANDBOX
+    }
+
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    return response.json()
+
+
+def main_sync_workflow(request):
+    """Main workflow for Cloud Run service."""
+
+    # Step 1: Create or get existing audience
+    audience_id = os.environ.get('AEP_AUDIENCE_ID')
+    if not audience_id:
+        audience_id = create_external_audience(
+            audience_name="Hot Leads - BigQuery Daily",
+            description="High propensity leads from BigQuery lead scoring model"
+        )
+        print(f"✓ Created audience: {audience_id}")
+
+    # Step 2: Export BigQuery table to GCS as CSV
+    gcs_bucket = os.environ['GCS_BUCKET']
+    csv_path = f"{gcs_bucket}/aep-audiences/hot-leads-{time.strftime('%Y%m%d')}.csv"
+    generate_csv_export(audience_id, csv_path)
+    print(f"✓ Exported to: {csv_path}")
+
+    # Step 3: Trigger AEP ingestion
+    run_id = trigger_ingestion(audience_id, csv_path)
+    print(f"✓ Ingestion started: {run_id}")
+
+    # Step 4: Poll for completion
+    import time
+    for _ in range(60):  # Max 10 minutes
+        status = check_ingestion_status(audience_id, run_id)
+
+        if status.get("status") == "COMPLETED":
+            print(f"✓ Ingestion completed: {status.get('profilesIngested')} profiles")
+            return {"status": "success", "profiles": status.get("profilesIngested")}
+        elif status.get("status") == "FAILED":
+            raise Exception(f"Ingestion failed: {status}")
+
+        time.sleep(10)
+
+    raise Exception("Ingestion timeout")
+
+
+if __name__ == "__main__":
+    # For Cloud Run
+    from flask import Flask, request
+    app = Flask(__name__)
+
+    @app.route("/", methods=["POST"])
+    def handle_request():
+        result = main_sync_workflow(request)
+        return result, 200
+
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+```
+
+#### Step 3: Deploy and Schedule
+
+```bash
+# Deploy Cloud Run service
+gcloud run deploy aep-external-audiences \
+  --source=. \
+  --region=europe-west1 \
+  --memory=1Gi \
+  --timeout=600 \
+  --set-env-vars="AEP_ACCESS_TOKEN=...,AEP_CLIENT_ID=...,AEP_IMS_ORG_ID=...,GCS_BUCKET=banking-audiences" \
+  --service-account=aep-sync@banking-project.iam.gserviceaccount.com \
+  --no-allow-unauthenticated
+
+# Schedule daily execution
+gcloud scheduler jobs create http aep-external-audience-daily \
+  --location=europe-west1 \
+  --schedule="0 6 * * *" \
+  --time-zone="Europe/Berlin" \
+  --uri="https://aep-external-audiences-...-ew.a.run.app" \
+  --http-method=POST \
+  --oidc-service-account-email=aep-sync@banking-project.iam.gserviceaccount.com
+```
+
+### API Endpoints Reference
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/core/ais/external-audience/` | POST | Create audience definition |
+| `/core/ais/external-audiences/operations/{ID}` | GET | Check creation status |
+| `/core/ais/external-audience/{AUDIENCE_ID}` | PATCH | Update audience metadata |
+| `/core/ais/external-audience/{AUDIENCE_ID}/runs` | POST | Trigger data ingestion |
+| `/core/ais/external-audience/{AUDIENCE_ID}/runs/{RUN_ID}` | GET | Check ingestion status |
+| `/core/ais/external-audience/{AUDIENCE_ID}` | DELETE | Delete audience |
+
+### Consequences
+
+#### Positive
+
+✅ **Push-Based (Security-Friendly)**:
+- No external BigQuery exposure required
+- Compliant with "no external DB access" policies
+- Security team approval easier
+
+✅ **Significant Data Reduction**:
+- 99.6-99.93% reduction vs full profiles
+- 1M profiles: 36 MB (IDs only) or 200 MB (IDs + 10 enrichment fields)
+- vs 50 GB for full profiles
+
+✅ **Uses AEP Destinations**:
+- Can activate to Marketo, Google Ads, Meta Ads
+- Enrichment fields available for personalization
+- Same destination connectors as full AEP
+
+✅ **Lower Cost Than Full Profiles**:
+- $112K-$292K/year vs $500K+ for full profile ingestion
+- Minimal storage and API costs
+
+✅ **Good for POC/Testing**:
+- Fast setup (1-2 weeks)
+- Validate AEP activation workflows
+- Test destination integrations
+
+#### Negative
+
+❌ **CRITICAL: No AEP Segmentation**:
+- **Enrichment attributes CANNOT be used in Segment Builder**
+- Cannot build segments in AEP: `(lead_score > 80) AND (visited_pricing_page)`
+- Must build ALL segments in BigQuery
+- **Loses AEP's core value proposition**
+
+❌ **30-90 Day TTL Requirement**:
+- Data expires after TTL (default 30 days)
+- Requires automated refresh every 30 days
+- If automation fails, audiences become inactive
+- Operational burden
+
+❌ **Batch-Only (Effectively)**:
+- Only one ingestion at a time per audience
+- Cannot run concurrent uploads
+- Not suitable for sub-hour refresh
+- Minimum practical refresh: Daily
+
+❌ **Limited Enrichment (25 Columns Max)**:
+- 1 identity field + max 24 enrichment fields
+- Cannot send full customer profiles
+- Must prioritize most important fields
+
+❌ **No Journey Optimizer Integration**:
+- Enrichment attributes not yet available in AJO journeys
+- Limits personalization in multi-channel journeys
+
+❌ **File Size Constraint**:
+- Max 1 GB per CSV upload
+- Large audiences may need splitting
+
+❌ **Enrichment Attributes Are Transient**:
+- Not stored durably in Profile Store
+- Tied to uploaded audience lifecycle
+- Cannot combine with AEP behavioral data
+
+❌ **NOT Recommended for Long-Term Production**:
+- Adobe's official zero-copy solution is FAC (Option 1)
+- External Audiences designed for POC/testing
+- Lacks robustness for enterprise production
+
+### Cost Analysis
+
+| Component | Annual Cost | Notes |
+|-----------|-------------|-------|
+| **AEP Licensing** |
+| RT-CDP (Foundation) | $80K-$200K | Minimal profile usage |
+| Journey Optimizer (Optional) | $30K-$80K | If needed |
+| **Subtotal AEP** | **$110K-$280K** | |
+| **GCP Costs** |
+| BigQuery (audience queries) | $1K-$5K/year | Daily staging queries |
+| Cloud Storage (CSV staging) | $120/year | Minimal |
+| Cloud Run (API service) | $240/year | Minimal compute |
+| Cloud Scheduler | $12/year | Daily trigger |
+| **Subtotal GCP** | **$1.4K-$5.4K** | |
+| **Implementation & Maintenance** |
+| Initial Setup | $5K-$15K | 1-2 weeks |
+| Ongoing Maintenance | $15K-$30K/year | Automation monitoring |
+| **TOTAL FIRST YEAR** | **$112K-$292K** | |
+| **TOTAL SUBSEQUENT YEARS** | **$107K-$277K** | |
+
+**Cost Comparison**:
+- 50-60% cheaper than Computed Attributes (Option 2): $248K-$858K
+- 15-30% cheaper than Federated (Option 1): $247K-$701K (but loses segmentation!)
+
+### Critical Limitations Summary
+
+| Limitation | Impact | Workaround |
+|------------|--------|------------|
+| **No segmentation with enrichment** | ❌ CRITICAL | Build all segments in BigQuery |
+| **30-day TTL** | ❌ HIGH | Automate refresh, monitor failures |
+| **25 column limit** | ⚠️ MEDIUM | Prioritize most important fields |
+| **1 GB file size** | ⚠️ MEDIUM | Split large audiences |
+| **One ingestion at a time** | ⚠️ MEDIUM | Schedule non-overlapping uploads |
+| **Batch-only** | ⚠️ MEDIUM | Use Option 2 if real-time needed |
+
+### When to Choose This Option
+
+**Choose External Audiences IF**:
+- ✅ Security blocks BigQuery external access (FAC impossible)
+- ✅ POC/testing only (validate AEP destinations)
+- ✅ Can build all segments in BigQuery (no AEP segmentation needed)
+- ✅ Batch campaigns sufficient (daily/weekly)
+- ✅ Budget constraint (<$300K/year)
+- ✅ Short-term project (3-6 months)
+
+**DO NOT Choose IF**:
+- ❌ Need AEP segmentation features (Segment Builder)
+- ❌ Want to combine BigQuery + AEP behavioral data in segments
+- ❌ Need real-time activation (<5 min)
+- ❌ Long-term production use (use Computed Attributes or lobby for FAC)
+- ❌ >25 enrichment fields needed
+
+### Recommended Usage
+
+**External Audiences is ONLY recommended for**:
+
+1. **POC/Pilot Phase** (3-6 months):
+   - Validate AEP destination integrations
+   - Test activation workflows
+   - Prove business value
+   - **Then migrate to FAC (Option 1) or Computed Attributes (Option 2)**
+
+2. **Interim Solution While Lobbying for FAC**:
+   - Security hasn't approved BigQuery exposure yet
+   - Use External Audiences to deliver immediate value
+   - Continue security discussions for FAC approval
+   - Migrate to FAC once approved
+
+3. **Very Simple ID-Only Activation**:
+   - Pre-built audiences from BigQuery
+   - No need for AEP segmentation
+   - Pure activation use case
+   - But consider Reverse ETL (Census/Hightouch) as alternative
+
+### Implementation Timeline
+
+| Week | Milestone | Owner |
+|------|-----------|-------|
+| 1 | Create BigQuery staging queries | Data Engineering |
+| 1 | Build Cloud Run service | Data Engineering |
+| 1-2 | Configure AEP service account, API access | AEP Admin |
+| 2 | Test API integration (create, upload, activate) | Data Engineering + AEP Admin |
+| 2 | Configure Cloud Scheduler automation | Data Engineering |
+| 2 | End-to-end testing | QA Team |
+| 2 | Production rollout (POC) | All Teams |
+
+**Note**: Only 2 weeks because it's simpler than FAC (no security approval needed for push-based approach)
+
+---
+
 ## Final Recommendation
 
 ### PRIMARY: Option 1 - Federated Audience Composition
@@ -941,14 +1405,35 @@ Phase 3 (Months 7-12): Add Option 3 (Hybrid) if justified
 - Pull-based data access needs risk assessment
 
 **IF SECURITY BLOCKS OPTION 1**:
-→ **Fallback to Option 2 (Computed Attributes)** - push-based, no external DB exposure
-→ **OR Option 4 (External Audiences CSV/API)** - for POC/testing only
+→ **Primary Fallback: Option 4 (External Audiences)** - for POC/immediate value (3-6 months)
+→ **Long-term Solution: Option 2 (Computed Attributes)** - push-based production architecture
+→ **OR Continue lobbying for FAC approval** - best long-term solution
+
+**Decision Matrix When FAC is Blocked**:
+
+```
+Security Blocks FAC
+↓
+Need real-time (<5 min)?
+├─ YES → Option 2 (Computed Attributes)
+│         • $248K-$858K/year
+│         • Full AEP features
+│         • Production-ready
+│
+└─ NO (Batch OK) → Option 4 (External Audiences) for POC
+                    • $112K-$292K/year
+                    • Fast setup (2 weeks)
+                    • Validate destinations
+                    • Then migrate to Option 2 or lobby for FAC
+```
 
 **Action Required**:
 1. Schedule meeting with Security & Compliance team
 2. Present federated architecture (read-only, audit logs, VPN)
 3. Get formal approval OR rejection
-4. If rejected → Proceed with Option 2
+4. If rejected:
+   - **Short-term**: Deploy Option 4 (POC, 3-6 months)
+   - **Long-term**: Plan Option 2 (production) OR continue FAC lobbying
 
 ---
 
