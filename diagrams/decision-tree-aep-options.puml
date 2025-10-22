@@ -1,176 +1,169 @@
 @startuml AEP Zero-Copy Decision Tree
 
-!define DECISION_COLOR #FFE4B5
-!define OPTION1_COLOR #90EE90
-!define OPTION2_COLOR #87CEEB
-!define OPTION3_COLOR #DDA0DD
-!define BLOCKER_COLOR #FFB6C1
-
 skinparam defaultTextAlignment center
-skinparam wrapWidth 200
-skinparam maxMessageSize 150
+skinparam ActivityBackgroundColor #FFE4B5
+skinparam ActivityBorderColor #333
+skinparam ActivityFontSize 11
 
 title AEP Zero-Copy Architecture - Decision Tree\n(Banking/GCP Environment)
 
 start
 
-:**START**\nYou have BigQuery lead scoring\nNeed to activate via AEP;
+:START
+====
+You have BigQuery lead scoring
+Need to activate via AEP;
 
 note right
   **Context:**
-  • Cold/Warm/Hot lead classification in BigQuery
-  • Want to activate to marketing channels
-  • Minimize data transfer & vendor lock-in
+  • Lead classification in BigQuery
+  • Activate to marketing channels
+  • Minimize data transfer
 end note
 
-' ===== CRITICAL SECURITY DECISION =====
-:Security/Compliance Check;
+partition "CRITICAL SECURITY CHECK" {
+  :Security/Compliance Check;
 
-if (Can you expose BigQuery\nto external systems (AEP)?\n\n**Critical for FAC**) then (YES - Approved)
-
-  note right
-    ✓ Security team approves external queries
-    ✓ Can configure VPN/IP allowlist
-    ✓ Audit logs acceptable for compliance
-    ✓ BaFin/regulatory requirements met
-  end note
-
-  ' Continue to latency decision
-  :Proceed to latency requirements;
-
-else (NO - Blocked)
-
-  note right #FFB6C1
-    ✗ Security policy blocks external DB access
-    ✗ BaFin compliance restrictions
-    ✗ Data residency requirements
-    ✗ Risk assessment blocks pull-based access
-
-    **Impact:** Cannot use Federated Audience Composition
-  end note
-
-  ' Skip FAC, go to push-based options
-  :**FAC NOT POSSIBLE**\nMust use push-based patterns;
-
-  if (Do you need real-time\n(<5 min latency)?) then (YES)
-
-    :✓ **OPTION 2**\n**Computed Attributes Pattern**\n\n• Stream derived scores from BigQuery\n• 2-10 min latency\n• Full AEP features\n• $248K-$858K/year\n• Vendor lock-in: Medium-High] OPTION2_COLOR
-
-    stop
-
-  else (NO - Batch OK)
-
-    if (Can you build audiences\nin BigQuery and upload IDs?) then (YES)
-
-      :⚠ **OPTION 4**\n**External Audiences (CSV/API)**\n\n• Manual upload of audience IDs\n• Good for POC/testing\n• 30-day TTL (must re-upload)\n• $112K-$292K/year\n• NOT for production long-term] #FFDAB9
-
-      note right
-        **Recommendation:**
-        Use this for POC only.
-        Lobby for FAC approval.
-      end note
-
-      stop
-
-    else (NO)
-
-      :❌ **NO VIABLE OPTION**\n\nRecommendation:\n1. Lobby security for FAC approval\n2. OR use GCP-native activation\n   (skip AEP entirely)] BLOCKER_COLOR
-
-      stop
-
-    endif
-
-  endif
-
-endif
-
-' ===== LATENCY REQUIREMENTS =====
-
-:Latency Requirements;
-
-if (Do you need real-time\nactivation (<5 min)?) then (NO - Batch OK)
-
-  note right
-    Batch use cases:
-    • Daily/weekly campaigns
-    • Monthly reports
-    • Nurture sequences
-    • Suppression lists
-  end note
-
-  :✓ **OPTION 1 (RECOMMENDED)**\n**Federated Audience Composition**\n\n• Query BigQuery in-place\n• 99.96% data reduction\n• $247K-$701K/year (50% savings)\n• Zero vendor lock-in\n• Data stays in GCP\n• 2-4 weeks implementation] OPTION1_COLOR
-
-  note right
-    **Best choice for:**
-    ✓ Batch campaigns
-    ✓ Cost optimization
-    ✓ Data sovereignty
-    ✓ Minimal lock-in
-  end note
-
-  stop
-
-else (YES - Need Real-Time)
-
-  note right
-    Real-time use cases:
-    • Sales alerts (<1 min)
-    • Web personalization (<100ms)
-    • Cart abandonment (5 min)
-    • Lead routing (immediate)
-  end note
-
-  ' Percentage decision
-  :What % of use cases\nneed real-time?;
-
-  if (What percentage?) then (<10% need real-time)
-
-    :✓ **OPTION 3 (HYBRID)**\n**Hybrid Selective Pattern**\n\n• 99% Federated (batch)\n• 1% Computed Attributes (real-time)\n• Best economics + real-time\n• $286K-$693K/year\n• 95-99% data reduction\n• Vendor lock-in: Low (99% in BigQuery)] OPTION3_COLOR
+  if (Can you expose BigQuery\nto external systems?) then (YES - Approved)
 
     note right
-      **Example split:**
-      • 9.9M profiles → FAC (daily campaigns)
-      • 100K VIPs → Streaming (real-time alerts)
-
-      **Best of both worlds**
+      ✓ Security approved
+      ✓ VPN/IP allowlist OK
+      ✓ BaFin compliant
     end note
 
-    stop
+    partition "LATENCY REQUIREMENTS" {
+      if (Need real-time\nactivation <5 min?) then (NO - Batch OK)
 
-  elseif (10-50% need real-time) then (10-50%)
+        #90EE90:OPTION 1 (RECOMMENDED)
+        ====
+        **Federated Audience Composition**
+        ====
+        • Query BigQuery in-place
+        • 99.96% data reduction
+        • $247K-$701K/year
+        • Zero vendor lock-in;
 
-    :Cost vs Simplicity?;
+        stop
 
-    if (Prefer...) then (Cost Optimization)
+      else (YES - Real-Time)
 
-      :✓ **OPTION 3 (HYBRID)**\n**Hybrid Selective Pattern**\n\n• Optimize costs\n• Manage complexity\n• $286K-$693K/year] OPTION3_COLOR
+        if (What % need\nreal-time?) then (<10%)
 
-      stop
+          #DDA0DD:OPTION 3 (HYBRID)
+          ====
+          **Hybrid Selective Pattern**
+          ====
+          • 99% Federated (batch)
+          • 1% Streaming (real-time)
+          • $286K-$693K/year;
 
-    else (Simplicity)
+          stop
 
-      :✓ **OPTION 2**\n**Computed Attributes Pattern**\n\n• Single architecture\n• All profiles streamed\n• $248K-$858K/year\n• Easier operations] OPTION2_COLOR
+        elseif (10-50%) then
 
-      stop
+          if (Prefer?) then (Cost)
 
-    endif
+            #DDA0DD:OPTION 3 (HYBRID)
+            ====
+            **Hybrid Selective**
+            ====
+            • Optimize costs
+            • $286K-$693K/year;
 
-  else (>50% need real-time)
+            stop
 
-    :✓ **OPTION 2**\n**Computed Attributes Pattern**\n\n• Stream derived scores to AEP\n• Real-time capability (2-10 min)\n• Full AEP features (Customer AI, Identity Graph)\n• Web personalization (<100ms)\n• $248K-$858K/year\n• Vendor lock-in: Medium-High] OPTION2_COLOR
+          else (Simplicity)
 
-    note right
-      **When to use:**
-      ✓ Web personalization
-      ✓ Customer AI needed
-      ✓ Identity Graph required
-      ✓ >50% use cases real-time
+            #87CEEB:OPTION 2
+            ====
+            **Computed Attributes**
+            ====
+            • Single architecture
+            • $248K-$858K/year;
+
+            stop
+
+          endif
+
+        else (>50%)
+
+          #87CEEB:OPTION 2
+          ====
+          **Computed Attributes**
+          ====
+          • Stream to AEP
+          • 2-10 min latency
+          • $248K-$858K/year;
+
+          stop
+
+        endif
+
+      endif
+    }
+
+  else (NO - BLOCKED)
+
+    note right #FFB6C1
+      ✗ Security blocks external access
+      ✗ BaFin restrictions
+      ✗ Data residency rules
+      **FAC NOT POSSIBLE**
     end note
 
-    stop
+    partition "PUSH-BASED OPTIONS" {
+      #FFB6C1:Must use push-based patterns;
+
+      if (Need real-time\n<5 min?) then (YES)
+
+        #87CEEB:OPTION 2
+        ====
+        **Computed Attributes**
+        ====
+        • Stream derived scores
+        • 2-10 min latency
+        • $248K-$858K/year;
+
+        stop
+
+      else (NO - Batch OK)
+
+        if (Can build audiences\nin BigQuery?) then (YES)
+
+          #FFDAB9:OPTION 4 (POC ONLY)
+          ====
+          **External Audiences**
+          ====
+          • Manual CSV/API upload
+          • 30-day TTL
+          • $112K-$292K/year
+          • NOT for production;
+
+          note right
+            Use for POC only
+            Lobby for FAC approval
+          end note
+
+          stop
+
+        else (NO)
+
+          #FFB6C1:NO VIABLE OPTION
+          ====
+          **Recommendations:**
+          1. Lobby for FAC approval
+          2. OR use GCP-native
+             (skip AEP);
+
+          stop
+
+        endif
+
+      endif
+    }
 
   endif
-
-endif
+}
 
 @enduml
