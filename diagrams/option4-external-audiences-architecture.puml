@@ -1,0 +1,247 @@
+@startuml External Audiences API Architecture (Option 4)
+
+skinparam BackgroundColor transparent
+skinparam componentStyle rectangle
+skinparam defaultTextAlignment center
+
+title External Audiences API - Push-Based Zero-Copy Architecture (Option 4)\nData Flow & Components
+
+!define GCP_COLOR #E8F4F8
+!define AEP_COLOR #FFE4E1
+!define MARKETO_COLOR #E6E6FA
+
+' ===== GOOGLE CLOUD PLATFORM =====
+package "Google Cloud Platform (GCP)" GCP_COLOR {
+
+    package "Data Layer" {
+        database "BigQuery\nDataset" as BQ {
+            [customer_profiles]
+            ----
+            • 100+ fields
+            • Large volume
+            • Full history
+            ----
+            **Raw data stays here**
+        }
+
+        database "Staging\nTable/View" as Staging {
+            [hot_leads_staging]
+            ----
+            • customer_id
+            • email
+            • first_name
+            • last_name
+            • lead_score
+            • lead_classification
+            • product_interest
+            • engagement_index
+            ----
+            **Pre-filtered subset**
+            **8 columns only**
+        }
+    }
+
+    package "Orchestration Layer" {
+        component "Cloud Scheduler" as Scheduler {
+            [Daily Trigger]
+            ----
+            Cron: 0 6 * * *
+            (6:00 AM daily)
+        }
+
+        component "Cloud Run Service" as CloudRun {
+            [External Audiences\nAPI Client]
+            ----
+            **Functions:**
+            • Query BigQuery
+            • Export to CSV
+            • Upload to AEP
+            • Poll ingestion status
+            • Error handling
+        }
+    }
+
+    package "Storage Layer" {
+        storage "Cloud Storage\nBucket" as GCS {
+            [Staging CSV Files]
+            ----
+            hot-leads-20251023.csv
+            (~10 MB, 50K rows)
+            ----
+            **Temporary storage**
+        }
+    }
+}
+
+BQ -down-> Staging : "Scheduled query\n(SQL WHERE filter)"
+Staging -down-> CloudRun : "Query results"
+CloudRun -right-> GCS : "Export CSV"
+Scheduler -down-> CloudRun : "Trigger daily\n(HTTP POST)"
+
+' ===== ADOBE EXPERIENCE PLATFORM =====
+package "Adobe Experience Platform (AEP)" AEP_COLOR {
+
+    component "External Audiences API" as API {
+        [POST /external-audience/]
+        [POST /runs]
+        [GET /runs/{id}]
+        [PATCH /external-audience/]
+        [DELETE /external-audience/]
+    }
+
+    database "External Audience\nStorage" as AEPStorage {
+        [Audience: "Hot Leads"]
+        ----
+        **Stored Data:**
+        • 50K customer IDs
+        • 7 enrichment fields/ID
+        • Total: ~10 MB
+        ----
+        **TTL: 30 days**
+        (auto-expires Nov 22)
+        ----
+        ⚠️ **Limitation:**
+        Enrichment fields
+        NOT usable in
+        Segment Builder
+    }
+
+    component "Destinations\nConnector" as Destinations {
+        [Marketo Connector]
+        ----
+        **Activation Settings:**
+        • Source: "Hot Leads"
+        • Frequency: Daily
+        • Fields: All enrichment
+    }
+}
+
+CloudRun -right-> API : "HTTPS API calls\n(OAuth token auth)"
+API -down-> AEPStorage : "Store IDs +\nenrichment"
+AEPStorage -down-> Destinations : "Fetch audience\nmembers"
+
+' ===== MARKETO =====
+package "Marketo (Email Marketing Platform)" MARKETO_COLOR {
+    component "Marketo API" as MarketoAPI {
+        [Audience Sync Endpoint]
+    }
+
+    database "Marketo Lists" as MarketoLists {
+        [Static List:\n"Hot Leads from AEP"]
+        ----
+        **50K contacts with:**
+        • Email
+        • First Name
+        • Last Name
+        • Lead Score
+        • Lead Classification
+        • Product Interest
+        ----
+        **Segmentation:**
+        WHERE lead_score > 90
+        (done in Marketo)
+    }
+
+    component "Email Campaigns" as Campaigns {
+        [Campaign:\n"Hot Leads Nurture"]
+        ----
+        **Target:** lead_score > 90
+        **Subject:** "Exclusive offer..."
+        **Frequency:** Weekly
+    }
+}
+
+Destinations -right-> MarketoAPI : "Push audience\ndata (50K profiles)"
+MarketoAPI -down-> MarketoLists : "Sync to list"
+MarketoLists -down-> Campaigns : "Target audience"
+
+' ===== DATA FLOW ANNOTATIONS =====
+
+note right of BQ
+**Data Reduction:**
+100+ fields → 8 fields
+Large volume → 50K rows
+**Reduction: >99%**
+end note
+
+note right of GCS
+**Temporary CSV:**
+• Created daily
+• Uploaded to AEP
+• Deleted after ingestion
+• No permanent storage
+end note
+
+note right of AEPStorage
+**Minimal Storage:**
+• IDs + enrichment only
+• 30-day expiration
+• Auto-deleted on TTL
+• Requires refresh
+
+**Critical Limitation:**
+Cannot build NEW segments
+in AEP using enrichment fields
+end note
+
+note right of MarketoLists
+**Segmentation Location:**
+All segmentation logic
+happens in MARKETO,
+not in AEP
+
+Example:
+"Hot Leads with score > 90"
+filtered in Marketo
+end note
+
+' ===== KEY FLOWS =====
+
+note bottom of CloudRun
+**Daily Workflow:**
+1. Query BigQuery (50K rows)
+2. Export to CSV (~10 MB)
+3. Upload to AEP API
+4. Poll until COMPLETED
+5. Alert on errors
+
+**Retry Logic:**
+• Max 3 retries
+• Exponential backoff
+• Alert if all fail
+end note
+
+note bottom of API
+**API Endpoints Used:**
+POST /core/ais/external-audience/
+  → Create audience definition
+
+POST /core/ais/external-audience/{id}/runs
+  → Trigger ingestion
+
+GET /core/ais/external-audience/{id}/runs/{runId}
+  → Check ingestion status
+
+**Authentication:**
+Bearer token + API key
+end note
+
+' ===== LEGEND =====
+
+legend bottom
+|= Component |= Data Size |= Frequency |
+| BigQuery Dataset | Large volume (100+ fields) | Always available |
+| Staging Table | ~10 MB (8 fields, 50K rows) | Daily refresh |
+| CSV in GCS | ~10 MB | Daily (temporary) |
+| AEP Storage | ~10 MB (IDs + 7 enrichment) | 30-day TTL |
+| Marketo List | ~10 MB (all fields) | Daily sync |
+
+**Key Characteristics:**
+• **Push-Based**: No BigQuery exposure to AEP
+• **Minimal Storage**: Only IDs + enrichment in AEP
+• **Zero-Copy**: Raw data (100+ fields) stays in BigQuery
+• **TTL Management**: Automated refresh before 30 days
+• **Segmentation**: Done in BigQuery (before upload) or Marketo (after activation)
+endlegend
+
+@enduml

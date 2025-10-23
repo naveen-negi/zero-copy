@@ -22,11 +22,25 @@ This directory contains PlantUML diagrams for the three architecture options and
    - Hybrid Selective Pattern
    - 99% Federated (batch) + 1% Streaming (real-time)
    - Best economics with real-time capability
-   - 95-99% data reduction, $286K-$693K/year
+   - 95-99% data reduction
+
+4. **[option4-external-audiences-flow.puml](option4-external-audiences-flow.puml)** ⭐ NEW
+   - External Audiences API - Detailed Flow (Sequence Diagram)
+   - Shows complete daily execution workflow
+   - BigQuery → Cloud Run → AEP API → Marketo
+   - Includes setup, daily automation, error handling, TTL expiration
+   - >99% data reduction (push-based)
+
+5. **[option4-external-audiences-architecture.puml](option4-external-audiences-architecture.puml)** ⭐ NEW
+   - External Audiences API - Architecture Overview (Component Diagram)
+   - Shows all components and data flows
+   - Emphasizes minimal storage in AEP (IDs + enrichment only)
+   - Highlights critical limitation: no AEP segmentation
+   - Push-based (no BigQuery exposure required)
 
 ### Decision Flow
 
-4. **[decision-flow.puml](decision-flow.puml)**
+6. **[decision-flow.puml](decision-flow.puml)**
    - Interactive decision tree
    - Guides you to the right option based on:
      - Batch vs real-time needs
@@ -34,7 +48,7 @@ This directory contains PlantUML diagrams for the three architecture options and
      - Customer AI/Attribution AI requirements
      - Cost vs simplicity preferences
 
-5. **[decision-tree-aep-options.puml](decision-tree-aep-options.puml)** ⭐ NEW
+7. **[decision-tree-aep-options.puml](decision-tree-aep-options.puml)** ⭐ RECOMMENDED
    - **Comprehensive decision tree for banking/regulated environments**
    - **Starts with critical security constraint**: Can you expose BigQuery to AEP?
    - Includes all 4 options (FAC, Computed Attributes, Hybrid, External Audiences)
@@ -109,23 +123,34 @@ After rendering PlantUML files, the following will be created:
 - `option1-federated-audience-composition.png` (or .svg)
 - `option2-computed-attributes.png` (or .svg)
 - `option3-hybrid-selective.png` (or .svg)
+- `option4-external-audiences-flow.png` (or .svg) ⭐ NEW
+- `option4-external-audiences-architecture.png` (or .svg) ⭐ NEW
 - `decision-flow.png` (or .svg)
-- `decision-tree-aep-options.png` (or .svg) ⭐ NEW
+- `decision-tree-aep-options.png` (or .svg)
 
 **Note:** `.png` and `.svg` files are gitignored to avoid binary bloat. Render them locally as needed.
 
-**To generate the decision tree visuals:**
+**To generate all diagrams:**
 ```bash
-plantuml -tsvg decision-tree-aep-options.puml
-plantuml -tpng decision-tree-aep-options.puml
+# Render all diagrams to SVG
+plantuml -tsvg *.puml
+
+# Render all diagrams to PNG
+plantuml -tpng *.puml
+
+# Render specific Option 4 diagrams
+plantuml -tsvg option4-external-audiences-flow.puml
+plantuml -tsvg option4-external-audiences-architecture.puml
 ```
 
 ## Integration with Documents
 
 These diagrams are referenced in:
+- **[../architecture-decision-records/adr-001-aep-bigquery-integration.md](../architecture-decision-records/adr-001-aep-bigquery-integration.md)** - Architecture Decision Record for all 4 options
 - **[../aep-zero-copy-executive-summary.md](../aep-zero-copy-executive-summary.md)** - Executive decision guide with embedded ASCII versions
 - **[../aep-zero-copy-architecture-options.md](../aep-zero-copy-architecture-options.md)** - Detailed technical implementation guide
 - **[../gcp-zero-copy-architecture-options.md](../gcp-zero-copy-architecture-options.md)** - GCP-specific implementation guide
+- **[../fac-vs-external-audiences-comparison.md](../fac-vs-external-audiences-comparison.md)** - Detailed comparison of FAC vs External Audiences API
 
 ## Color Scheme
 

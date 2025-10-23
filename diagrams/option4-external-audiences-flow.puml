@@ -1,0 +1,256 @@
+@startuml External Audiences API Flow (Option 4)
+
+skinparam BackgroundColor transparent
+skinparam defaultTextAlignment center
+skinparam BoxPadding 10
+skinparam ParticipantPadding 20
+skinparam SequenceDividerBackgroundColor #E8F4F8
+skinparam NoteBackgroundColor #FFF9E6
+skinparam NoteBorderColor #DAA520
+
+title External Audiences API Flow (Option 4)\nPush-Based Zero-Copy Architecture
+
+actor "Data Engineer" as Engineer #LightBlue
+box "Google Cloud Platform (GCP)" #E8F4F8
+    database "BigQuery\nDataset" as BQ #FBBC04
+    participant "Cloud Scheduler" as Scheduler #4285F4
+    participant "Cloud Run\nService" as CloudRun #4285F4
+    participant "Cloud Storage\n(Staging)" as GCS #34A853
+end box
+
+box "Adobe Experience Platform (AEP)" #FFE4E1
+    participant "External Audiences\nAPI" as API #FF0000
+    database "External Audience\nStorage" as AEPStorage #FF6B6B
+    participant "Destinations\nConnector" as Destinations #FF0000
+end box
+
+participant "Marketo\n(Email Platform)" as Marketo #5C5CFF
+
+== One-Time Setup ==
+
+Engineer -> BQ: Create staging table/view\n(customer_id + enrichment fields)
+activate BQ
+BQ --> Engineer: ✓ Table created
+deactivate BQ
+
+Engineer -> CloudRun: Deploy Cloud Run service\n(Python + External Audiences API client)
+activate CloudRun
+CloudRun --> Engineer: ✓ Service deployed
+deactivate CloudRun
+
+Engineer -> Scheduler: Configure daily schedule\n(e.g., 6:00 AM daily)
+activate Scheduler
+Scheduler --> Engineer: ✓ Job scheduled
+deactivate Scheduler
+
+Engineer -> API: Create External Audience definition\nPOST /core/ais/external-audience/
+activate API
+note right
+**Payload:**
+- audienceName: "Hot Leads"
+- identityType: "customer_id"
+- ttl: 30 (days)
+- enrichmentAttributes: [
+    {name: "email", type: "string"},
+    {name: "first_name", type: "string"},
+    {name: "lead_score", type: "number"},
+    ...
+  ]
+end note
+API --> Engineer: ✓ Audience ID: aud_12345
+deactivate API
+
+note over Engineer
+**Setup Complete**
+Daily automation will now run
+end note
+
+== Daily Execution Flow ==
+
+Scheduler -> CloudRun: Trigger daily job\n(HTTP POST at 6:00 AM)
+activate Scheduler
+activate CloudRun
+
+CloudRun -> BQ: Execute segmentation query
+activate BQ
+note right of BQ
+**Query:**
+SELECT
+  customer_id,
+  email,
+  first_name,
+  last_name,
+  lead_score,
+  lead_classification,
+  product_interest,
+  engagement_index
+FROM customers
+WHERE lead_classification = 'Hot'
+  AND consent_marketing = TRUE
+  AND last_interaction_date >=
+      DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+end note
+
+BQ --> CloudRun: ✓ Query results\n(50K rows × 8 columns)
+deactivate BQ
+
+CloudRun -> GCS: Export results to CSV
+activate GCS
+note right
+**CSV File:**
+gs://bucket/audiences/
+  hot-leads-20251023.csv
+
+**Size:** ~10 MB
+(50K rows, 8 columns)
+end note
+GCS --> CloudRun: ✓ CSV exported
+deactivate GCS
+
+CloudRun -> API: POST /core/ais/external-audience/\naud_12345/runs
+activate API
+note right
+**Trigger Ingestion:**
+{
+  "filePath": "gs://bucket/audiences/
+              hot-leads-20251023.csv",
+  "format": "CSV",
+  "mappings": {
+    "customer_id": 0,
+    "email": 1,
+    "first_name": 2,
+    "last_name": 3,
+    "lead_score": 4,
+    "lead_classification": 5,
+    "product_interest": 6,
+    "engagement_index": 7
+  }
+}
+end note
+
+API --> CloudRun: ✓ Ingestion started\nRun ID: run_67890
+API -> AEPStorage: Ingest IDs + enrichment
+activate AEPStorage
+note right of AEPStorage
+**Stored in AEP:**
+- 50K customer IDs
+- 7 enrichment fields per ID
+- Total storage: ~10 MB
+- TTL: 30 days (expires on Nov 22)
+
+**⚠️ Critical Limitation:**
+Enrichment fields CANNOT be used
+in AEP Segment Builder
+end note
+deactivate API
+
+CloudRun -> API: Poll status\nGET /core/ais/external-audience/\naud_12345/runs/run_67890
+activate API
+API --> CloudRun: Status: PROCESSING...
+deactivate API
+
+... Wait 30 seconds ...
+
+CloudRun -> API: Poll status (retry)
+activate API
+API --> CloudRun: Status: COMPLETED\n✓ 50,000 profiles ingested\n✗ 5 profiles failed
+deactivate API
+
+CloudRun --> Scheduler: ✓ Daily job completed
+deactivate CloudRun
+deactivate Scheduler
+
+note over AEPStorage
+**Audience Ready**
+"Hot Leads" (50K profiles)
+Available for activation
+end note
+
+== Activation to Marketo ==
+
+Engineer -> Destinations: Configure activation
+activate Destinations
+note right
+**Activation Settings:**
+- Source: "Hot Leads" audience
+- Destination: Marketo
+- Fields to send:
+  • customer_id
+  • email
+  • first_name
+  • last_name
+  • lead_score
+  • lead_classification
+  • product_interest
+end note
+
+Destinations -> AEPStorage: Fetch audience members
+activate AEPStorage
+AEPStorage --> Destinations: 50K profiles + enrichment
+deactivate AEPStorage
+
+Destinations -> Marketo: Push audience data\n(50K profiles)
+activate Marketo
+note right of Marketo
+**Marketo Receives:**
+{
+  "customer_id": "12345",
+  "email": "john@example.com",
+  "first_name": "John",
+  "last_name": "Doe",
+  "lead_score": 95,
+  "lead_classification": "Hot",
+  "product_interest": "Premium Plan"
+}
+
+**Can segment in Marketo:**
+WHERE lead_score > 90
+(segmentation happens in Marketo,
+ NOT in AEP)
+end note
+Marketo --> Destinations: ✓ Audience synced
+deactivate Marketo
+Destinations --> Engineer: ✓ Activation complete
+deactivate Destinations
+
+== 30 Days Later: TTL Expiration ==
+
+note over AEPStorage #FFB6C1
+**DAY 30: TTL Expiration**
+Audience "Hot Leads" auto-expires
+Data deleted from AEP
+Must re-upload to reactivate
+end note
+
+AEPStorage -> AEPStorage: Delete expired audience data
+note right
+**Automated Refresh Required:**
+Cloud Scheduler must trigger
+refresh before day 30 to maintain
+continuous activation
+end note
+
+== Error Handling ==
+
+group Error Scenario: Ingestion Failure
+    CloudRun -> API: POST /runs (upload CSV)
+    activate API
+    API --> CloudRun: ✗ Status: FAILED\nReason: "Invalid email format in row 1234"
+    deactivate API
+
+    CloudRun -> CloudRun: Log error
+    CloudRun -> Engineer: Send alert email\n"External Audience ingestion failed"
+    activate Engineer
+    Engineer -> BQ: Fix data quality issue
+    activate BQ
+    BQ --> Engineer: ✓ Fixed
+    deactivate BQ
+    Engineer -> CloudRun: Manually trigger retry
+    CloudRun -> API: POST /runs (re-upload)
+    activate API
+    API --> CloudRun: ✓ Status: COMPLETED
+    deactivate API
+    deactivate Engineer
+end
+
+@enduml
