@@ -1,4 +1,4 @@
-# ADR-001: AEP Integration with BigQuery Lead Scoring
+# ADR-001: Zero-Copy Architecture Options for AEP and BigQuery Integration
 
 **Status**: Proposed
 **Date**: 2025-10-22
@@ -9,55 +9,85 @@
 
 ## Context
 
-We have cold/warm/hot lead classification models running in BigQuery and need to activate these audiences to marketing channels (Marketo, Google Ads, Meta Ads) via Adobe Experience Platform (AEP).
+We need to activate audiences from BigQuery to marketing channels (Marketo, Google Ads, Meta Ads, email platforms) via Adobe Experience Platform (AEP) while minimizing data transfer, maintaining data sovereignty, and avoiding vendor lock-in.
 
 ### Current State
 
-- **Data Warehouse**: Google BigQuery
-- **Customer Profiles**: 10 million profiles, 2-10 TB of data
-- **Lead Scoring**: ML models computing cold/warm/hot classifications in BigQuery
-- **Activation Requirement**: Daily/weekly campaigns to marketing destinations
-- **Constraints**:
-  - Banking/regulated environment (BaFin compliance)
+- **Data Warehouse**: Google BigQuery (source of truth)
+- **Customer Profiles**: Millions of profiles, multi-TB datasets
+- **Data Processing**: Analytics, ML models, segmentation logic in BigQuery
+- **Activation Requirement**: Activate audiences to marketing destinations via AEP
+- **Environment Constraints**:
+  - Banking/regulated environment (BaFin compliance, GDPR)
   - Data sovereignty concerns (data must stay in GCP where possible)
   - Vendor lock-in risk must be minimized
   - Cost optimization priority
+  - Security policies may restrict external database access
+
+**Example Use Cases**:
+- Lead scoring (cold/warm/hot classifications) → Email campaigns
+- Churn prediction → Retention campaigns
+- Product recommendations → Personalized ads
+- Customer segmentation (RFM, CLV) → Multi-channel activation
+- VIP customer identification → Special offers
 
 ### Problem Statement
 
 Traditional AEP integration requires copying ALL customer data (100+ fields per profile) into Adobe's Real-Time Customer Profile Store, resulting in:
-- Massive data transfer volumes (2-10 TB annually)
-- Significant storage and ingestion costs ($80K-$145K/year)
-- Vendor lock-in (all logic and data in AEP)
-- Data sovereignty challenges
-- Complex ETL pipeline maintenance
+
+❌ **Massive Data Transfer**: 2-10 TB annually from BigQuery to AEP
+❌ **High Costs**: $80K-$145K/year for storage and ingestion alone
+❌ **Vendor Lock-in**: All segmentation logic and data stored in AEP
+❌ **Data Sovereignty Issues**: Customer data leaves GCP, stored in Adobe cloud
+❌ **Complex ETL**: Custom pipelines to sync BigQuery → AEP
+❌ **Dual Maintenance**: Schema evolution, data quality rules in both systems
+
+**Key Question**: How can we leverage AEP's activation capabilities (destinations, journey orchestration) WITHOUT copying all data from BigQuery to AEP?
 
 ### Key Requirements
 
 1. **Functional Requirements**:
-   - Activate lead classification audiences to Marketo, Google Ads, Meta Ads
-   - Daily/weekly campaign cadence is acceptable for 90% of use cases
-   - Support for 20-50 different audience segments
-   - Ability to refresh audiences on schedule
+   - Activate audiences from BigQuery to marketing destinations (Marketo, Google Ads, Meta Ads, etc.)
+   - Support for 20-50+ different audience segments
+   - Ability to refresh audiences on schedule (hourly/daily/weekly)
+   - Daily/weekly campaign cadence acceptable for majority of use cases
 
 2. **Non-Functional Requirements**:
-   - Minimize data transfer out of BigQuery
-   - Maintain data in GCP (regulatory compliance)
-   - Low vendor lock-in (preserve ability to switch from AEP)
-   - Cost-effective solution (<$700K/year total cost)
-   - Implementation timeline: 2-12 weeks
+   - **Minimize data transfer** out of BigQuery (target: >95% reduction)
+   - **Maintain data sovereignty** in GCP (regulatory compliance)
+   - **Low vendor lock-in** (preserve ability to switch from AEP to alternatives)
+   - **Cost-effective** solution (<$700K/year total cost)
+   - **Fast implementation** timeline: 2-12 weeks
+   - **Operational simplicity** (minimize custom code and dual-system maintenance)
 
 3. **Security & Compliance**:
    - BaFin compliance (German banking regulations)
-   - Data residency in EU/GCP
-   - Audit trail for data access
+   - GDPR compliance (data residency in EU/GCP)
+   - Audit trail for all data access
    - Minimal PII exposure to external systems
+   - Respect "no external database access" policies if applicable
 
 ---
 
 ## Decision
 
-We have evaluated three architecture options for integrating BigQuery lead scoring with AEP. Each option is documented below as a separate ADR subsection.
+We have evaluated **FOUR zero-copy architecture options** for integrating BigQuery with AEP. Each option minimizes data transfer while enabling audience activation to marketing destinations.
+
+**Summary Table**:
+
+| Option | Approach | Data Transfer Reduction | Cost/Year | Best For |
+|--------|----------|------------------------|-----------|----------|
+| **1. Federated Audience Composition (FAC)** | Pull-based, query in-place | **99.96%** | $247K-$701K | Batch use cases, low vendor lock-in |
+| **2. Computed Attributes** | Push-based, derived fields only | **85-95%** | $248K-$858K | Real-time requirements |
+| **3. Hybrid Selective** | 99% FAC + 1% streaming | **95-99%** | $286K-$693K | Mixed batch + real-time |
+| **4. External Audiences API** | Push-based, IDs + enrichment | **99.6-99.93%** | $112K-$292K | POC/testing only |
+
+Each option is documented below with:
+- Architecture diagrams
+- Complete GCP implementation (BigQuery, Cloud Run, service accounts)
+- Cost analysis
+- Limitations and trade-offs
+- Decision criteria
 
 ---
 
@@ -1362,15 +1392,27 @@ gcloud scheduler jobs create http aep-external-audience-daily \
 
 ## Final Recommendation
 
+### Decision Summary: Zero-Copy Architecture Options
+
+This ADR evaluated **four zero-copy architecture options** for activating BigQuery audiences via AEP:
+
+1. **Federated Audience Composition (FAC)**: Pull-based, query in-place, 99.96% data reduction
+2. **Computed Attributes**: Push-based, stream derived fields only, 85-95% data reduction
+3. **Hybrid Selective**: Combination of FAC (99%) + streaming (1%), 95-99% data reduction
+4. **External Audiences API**: Push-based IDs + enrichment, 99.6-99.93% data reduction
+
+All four options are **zero-copy** architectures compared to traditional full profile ingestion (which would require copying 100+ fields per profile).
+
 ### PRIMARY: Option 1 - Federated Audience Composition
 
 **Recommended for initial implementation based on**:
 
-1. ✅ **Lowest Total Cost**: $247K-$701K/year (50% savings)
-2. ✅ **Minimal Vendor Lock-in**: All logic in BigQuery
+1. ✅ **Lowest Total Cost**: $247K-$701K/year (50% savings vs full ingestion)
+2. ✅ **Minimal Vendor Lock-in**: All segmentation logic remains in BigQuery
 3. ✅ **Data Sovereignty**: Data never leaves GCP
 4. ✅ **Fastest Implementation**: 2-4 weeks
 5. ✅ **Meets Core Requirements**: Daily/weekly campaigns sufficient for 90% of use cases
+6. ✅ **TRUE Zero-Copy**: Only customer IDs transferred to AEP, not full profiles
 
 ### UPGRADE PATH: Option 3 - Hybrid (If Real-Time Needed)
 
